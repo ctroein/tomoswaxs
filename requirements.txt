@@ -1,0 +1,7 @@
+numpy>=1.26
+vtk>=9.3
+trame>=3.6
+trame-vtk>=2.8
+trame-plotly>=3
+plotly>=5
+trame-quasar>=0.2.1
