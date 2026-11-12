@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import numpy as np
+from .orientation import sample_rotation
 
 NOTICE = 'SYNTHETIC DEMO: fabricated specimen and scattering; no scientific validity'
 
@@ -25,24 +26,32 @@ def make_volume(size=160):
     return np.uint16(np.clip(density, 0, 1)*65535), spacing, np.repeat(axis[0], 3)
 
 
-def scattering(volume, spacing, origin, beam_x=.25, beam_y=0., angle_deg=0.):
+def scattering(volume, spacing, origin, beam_x=.25, beam_y=0., angle_deg=0., intensity_range=None, rotation_axis='y'):
     """Return q, phi, cake[phi,q], and its full-azimuth mean I(q).
 
-    Beam: laboratory +Z; sample rotation: laboratory Y. X/Y are lab mm.
+    Beam: laboratory +Z; selected image axis aligned with laboratory Y before
+    sample rotation about laboratory Y. X/Y beam positions are lab mm.
     q is invented nominal nm^-1; phi is degrees in [-180,180).
     Beam radii intentionally have no effect on this illustrative signal.
     """
     q = np.linspace(.02, 1.4, 256, dtype=np.float32)
     phi = np.linspace(-180, 180, 180, endpoint=False, dtype=np.float32)
-    ray_z = np.linspace(-2.5, 2.5, 320)
+    extent = (np.array(volume.shape[::-1])-1)*spacing
+    far = np.maximum(np.abs(origin),np.abs(origin+extent))
+    reach = max(2.5, float(np.linalg.norm(far)))
+    ray_z = np.linspace(-reach, reach, 320)
     t = np.deg2rad(angle_deg)
-    sx = np.cos(t)*beam_x-np.sin(t)*ray_z
-    sy = np.full_like(ray_z, beam_y)
-    sz = np.sin(t)*beam_x+np.cos(t)*ray_z
+    laboratory = np.stack([np.full_like(ray_z,beam_x),np.full_like(ray_z,beam_y),ray_z],axis=1)
+    sx,sy,sz = (laboratory @ sample_rotation(rotation_axis,angle_deg)).T
     indices = np.rint((np.stack([sx, sy, sz], axis=1)-origin)/spacing).astype(int)
     valid = np.all((indices >= 0) & (indices < np.array(volume.shape[::-1])), axis=1)
     ix, iy, iz = indices[valid].T
-    values = volume[iz, iy, ix].astype(float)/65535
+    values = volume[iz, iy, ix].astype(float)
+    if intensity_range is None:
+        values /= 65535
+    else:
+        low,high = intensity_range
+        values = np.clip(np.nan_to_num((values-low)/(high-low)),0,1)
     strength = values.sum()*(ray_z[1]-ray_z[0])
     asymmetry = np.average(sx[valid], weights=values) if values.sum() else 0
     mixture = np.clip(.5+.6*asymmetry+.25*beam_y, 0, 1)

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nim-ct-saxs"
+version = "0.1.0.dev0"
+description = "µCT and SAXS visualization for beamline workflows"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  {name = "Carl Troein"},
+  {name = "Emanuel Larsson"},
+  {name = "Mira Viljanen"},
+  {name = "Daniel White"},
+  {name = "Stuart Ansell"},
+]
+dependencies = ["numpy>=2.5.4,<2.6", "vtk>=9.7.2,<9.8", "trame>=4.0.0,<4.1", "trame-client>=4.1.4,<4.2", "trame-vtk>=2.11.17,<2.12", "trame-plotly>=3.1.2,<3.2", "plotly>=7.1.0,<7.2", "trame-quasar>=0.2.1,<0.3", "trame-dockview>=2.0.1,<2.1", "tifffile>=2026.11.8,<2026.12", "ngff-zarr>=0.52.0,<0.53", "dask[array]>=2026.8.0,<2026.9"]
+
+[project.scripts]
+nim-ct-saxs = "nim_ct_saxs.app:main"
+
+[dependency-groups]
+dev = ["packaging>=26,<27", "playwright>=1.50,<2", "tomlkit>=0.13,<1"]
+preview = ["matplotlib>=3.9,<4"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nim_ct_saxs"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"LICENSE" = "nim_ct_saxs/LICENSE"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/tools", "/docs", "/README.md", "/LICENSE", "/pyproject.toml", "/uv.lock", "/app.py", "/preview_demo.py"]
+
+[tool.dependency-trial.keep]
+# Dependencies listed here retain all bounds during trials; give a reason.
