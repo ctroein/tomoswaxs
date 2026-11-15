@@ -1,5 +1,6 @@
 """Exercise a running installed application; retain a Playwright trace on failure."""
 import argparse
+import re
 from pathlib import Path
 import tempfile
 from urllib.parse import urlparse
@@ -9,6 +10,80 @@ from playwright.sync_api import expect, sync_playwright
 
 # The narrow beam alone must not satisfy the rendered-volume check.
 SCENE_RENDERED = "() => [...document.querySelectorAll('#volume-interaction canvas, #volume-interaction img')].some(c => {\n    if (c.tagName === 'IMG' && (!c.complete || !c.naturalWidth)) return false;\n    const sample=document.createElement('canvas'); sample.width=64; sample.height=64;\n    const ctx=sample.getContext('2d'); ctx.drawImage(c,0,0,64,64);\n    const bytes=ctx.getImageData(0,0,64,64).data;\n    let bright=0;\n    for(let i=0;i<bytes.length;i+=4) if(Math.max(bytes[i],bytes[i+1],bytes[i+2])>60) bright++;\n    return bright/(64*64) > .02;\n})"
+
+def check_volume_controls(page):
+    page.locator('.nim-tab-title').filter(has_text=re.compile('^Crop$')).click()
+    start=page.get_by_role('spinbutton',name='Crop X start index',exact=True)
+    end=page.get_by_role('spinbutton',name='Crop X end index',exact=True)
+    full=int(end.input_value());lo=full//4;hi=3*full//4
+    start.fill(str(lo));end.fill(str(hi));end.press('Enter')
+    page.wait_for_function('([lo,hi]) => !window.trame.state.get("render_loading") && window.trame.state.get("render_loaded").includes(`${hi-lo} ×`)',arg=[lo,hi])
+    slider=page.get_by_role('slider',name='Crop X range',exact=True)
+    handle=slider.locator('.q-slider__thumb').first.bounding_box()
+    x,y=handle['x']+handle['width']/2,handle['y']+handle['height']/2
+    page.mouse.move(x,y);page.mouse.down();page.mouse.move(x+10,y,steps=5);page.mouse.up()
+    expect(start).not_to_have_value(str(lo))
+    lo=int(start.input_value())
+    page.wait_for_function('width => !window.trame.state.get("render_loading") && window.trame.state.get("render_loaded").includes(`${width} ×`)',arg=hi-lo)
+    page.locator('.nim-tab-title').filter(has_text=re.compile('^Resolution$')).click()
+    page.get_by_role('combobox',name='OME-Zarr level',exact=True).select_option('0')
+    page.wait_for_function('window.trame.state.get("render_level") === "0" && !window.trame.state.get("render_loading")')
+    page.reload()
+    page.wait_for_function('window.nimCrop && window.trame.state.get("workspace_ready")')
+    page.locator('.nim-tab-title').filter(has_text=re.compile('^Crop$')).click()
+    expect(start).to_have_value(str(lo));expect(end).to_have_value(str(hi))
+    page.get_by_role('checkbox',name='3D handles',exact=True).check()
+    page.get_by_role('checkbox',name='3D handles',exact=True).uncheck()
+    page.get_by_role('button',name='Reset crop',exact=True).click()
+    page.wait_for_function('full => !window.trame.state.get("render_loading") && window.trame.state.get("render_loaded").includes(`${full} ×`)',arg=full)
+    print('Crop, explicit level, reset and reload passed.',flush=True)
+
+
+def check_popouts(page):
+    """Exercise live components in child documents and their return paths."""
+    for title in ['µCT volume','SAXS 1D · synthetic','SAXS cake · synthetic']:
+        if title == 'µCT volume':
+            page.get_by_role('button',name='Beam view',exact=True).click()
+        with page.expect_popup() as opened:
+            page.get_by_role('button',name=f'Open in separate window: {title}',exact=True).click()
+        child=opened.value
+        child.wait_for_load_state()
+        back=child.get_by_role('button',name=f'Return to main window: {title}',exact=True)
+        expect(back).to_be_visible()
+        expect(page.get_by_role('tab')).to_have_count(4)
+        child.set_viewport_size({'width':800,'height':600})
+        child.wait_for_function("document.documentElement.dataset.theme === 'light'")
+        if title == 'µCT volume':
+            child.wait_for_function(SCENE_RENDERED)
+            before=page.evaluate("[window.trame.state.get('beam_x'),window.trame.state.get('beam_y')]")
+            box=child.locator('#volume-interaction').bounding_box()
+            child.keyboard.down('Alt');child.keyboard.down('Shift')
+            child.mouse.move(box['x']+box['width']*.5,box['y']+box['height']*.5)
+            child.mouse.down()
+            child.mouse.move(box['x']+box['width']*.6,box['y']+box['height']*.55,steps=8)
+            child.mouse.up();child.keyboard.up('Shift');child.keyboard.up('Alt')
+            page.wait_for_function('before => JSON.stringify([window.trame.state.get("beam_x"),window.trame.state.get("beam_y")]) !== JSON.stringify(before)',arg=before)
+        else:
+            child.wait_for_function("document.querySelector('.js-plotly-plot')?.data?.length")
+            before=child.locator('.js-plotly-plot').evaluate('(p)=>JSON.stringify(p.data)')
+            x=float(page.locator('#coord-x-number').input_value())
+            page.locator('#coord-x-number').fill(str(x+50))
+            page.locator('#coord-x-number').press('Tab')
+            child.wait_for_function("before=>JSON.stringify(document.querySelector('.js-plotly-plot').data)!==before",arg=before)
+        page.get_by_role('button',name='Settings',exact=True).click()
+        page.locator('#pref-theme').select_option('dark')
+        child.wait_for_function("document.documentElement.dataset.theme === 'dark'")
+        page.locator('#pref-theme').select_option('light')
+        page.get_by_role('button',name='Close',exact=True).click()
+        with child.expect_event('close'):
+            back.click()
+        expect(page.get_by_role('tab')).to_have_count(5)
+    with page.expect_popup() as opened:
+        page.get_by_role('button',name='Open in separate window: SAXS cake · synthetic',exact=True).click()
+    opened.value.close()
+    expect(page.get_by_role('tab')).to_have_count(5)
+    print('Popout rendering, interaction, updates, theme and return passed.',flush=True)
+
 
 def file_row(page,path):
     return page.locator('#volume-files tbody tr').filter(
@@ -57,7 +132,7 @@ def check_projects(page):
     import json
     import numpy as np
     import tifffile
-    from nim_ct_saxs.volumes import import_tiff
+    from tomoswaxs.volumes import import_tiff
     with tempfile.TemporaryDirectory(prefix='nim-project-check-') as folder:
         root=Path(folder)
         source=root/'source.tif'
@@ -96,6 +171,18 @@ def check_projects(page):
         page.locator('#coord-x-number').fill('150')
         page.locator('#coord-x-number').press('Tab')
         page.wait_for_function("window.trame.state.get('beam_x')===150")
+        page.get_by_role('button',name='Saved views',exact=True).click()
+        page.get_by_role('menuitem',name='Save current view…',exact=True).click()
+        page.locator('#saved-view-name').fill('Beam intersection')
+        page.get_by_role('button',name='Save',exact=True).click()
+        expect(page.locator('.saved-view-card')).not_to_be_visible()
+        page.locator('#coord-x-number').fill('200')
+        page.locator('#coord-x-number').press('Tab')
+        page.get_by_role('button',name='Saved views',exact=True).click()
+        page.get_by_role('menuitem',name='Beam intersection',exact=True).click()
+        expect(page.locator('#coord-x-number')).to_have_value('150')
+        first=next(sample for sample in json.loads(manifest.read_text())['samples'] if sample['id']==first_id)
+        assert first['saved_views'][0]['name']=='Beam intersection'
         page.get_by_role('button',name='Add sample',exact=True).click()
         file_row(page,second).click()
         page.get_by_role('button',name='Open',exact=True).click()
@@ -218,17 +305,18 @@ def check(url, artifacts, volume=None, import_output=None, dataset=None):
             saved=page.evaluate("JSON.parse(localStorage.getItem('nim-uct-saxs.preferences.v1')).layout")
             page.reload()
             page.wait_for_function("window.nimCoordinates && document.documentElement.dataset.theme === 'light'")
-            expect(page.get_by_role('tab')).to_have_count(3)
+            expect(page.get_by_role('tab')).to_have_count(5)
             page.wait_for_function("saved=>JSON.stringify(window.nimWorkspace.currentLayout.grid)===JSON.stringify(saved.grid)",arg=saved)
+            check_volume_controls(page)
+            check_popouts(page)
             page.get_by_role('button', name='About', exact=True).click()
             expect(page.locator('#about-title')).to_be_visible()
             expect(page.locator('.dependency-item')).to_have_count(10)
-            expect(page.locator('.infrastructure-links img')).to_have_count(3)
+            expect(page.locator('.infrastructure-logo')).to_have_count(3)
             page.get_by_text('MIT License', exact=True).click()
             expect(page.locator('.licence-text')).to_contain_text('Permission is hereby granted')
-            for image in page.locator('.infrastructure-links img').all():
-                expect(image).to_be_visible()
-                image.evaluate('(img) => img.decode()')
+            for logo in page.locator('.infrastructure-logo').all():
+                expect(logo).to_be_visible()
             page.get_by_role('button', name='Close', exact=True).click()
             if volume is not None:
                 page.get_by_role('button',name='Open volume',exact=True).click()

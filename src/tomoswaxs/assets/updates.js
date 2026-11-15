@@ -35,6 +35,7 @@
   }
   window.nimUpdates=createLatestUpdates((kind,value,context) => kind === 'beam'
     ? window.trame.trigger('nim_beam_position',[...value,context])
+    : kind === 'volume' ? window.trame.trigger('nim_volume_view',[value,context])
     : window.trame.trigger('nim_pose',[value.values,value.finished,context]),
     {context:()=>window.trame.state.get('sample_context'),
      interval:kind => kind === 'pose' && window.trame.state.get('rotation_playing')

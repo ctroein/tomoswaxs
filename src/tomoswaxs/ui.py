@@ -1,5 +1,6 @@
 """Application controls and dialogs; scientific state and rendering live in app.py."""
 from pathlib import Path
+import re
 from importlib.metadata import version, PackageNotFoundError
 from trame.ui.html import DivLayout
 from trame_client.widgets.core import Template
@@ -30,10 +31,12 @@ class ApplicationUI:
                         html.Span('{{ project_name || \"Standalone inspection\" }}',classes='project-name')
                         self.project_menu()
                         with html.Div():
-                            html.Button('View',id='view-menu',classes='project-menu-trigger',raw_attrs=['aria-haspopup="menu"','aria-label="View"'])
+                            html.Button('Tabs',id='view-menu',classes='project-menu-trigger',raw_attrs=['aria-haspopup="menu"','aria-label="Tabs"'])
                             with quasar.QMenu(target='#view-menu',auto_close=True,classes='project-menu'):
-                                for panel,label in [('volume','µCT volume'),('iq','SAXS 1D'),('cake','SAXS cake')]:
-                                    html.Button(label,click=f"window.nimWorkspace.open('{panel}')",raw_attrs=['role="menuitem"'])
+                                for panel,label in [('volume','µCT volume'),('iq','SAXS 1D'),('cake','SAXS cake'),('crop','Crop'),('resolution','Resolution')]:
+                                    with html.Button(click=f"window.nimWorkspace.toggle('{panel}')",raw_attrs=['role="menuitemcheckbox"',f':aria-checked="workspace_tabs.includes(\'{panel}\')"']):
+                                        html.Span('✓',classes='tab-menu-check',raw_attrs=[f':style="{{visibility: workspace_tabs.includes(\'{panel}\') ? \'visible\' : \'hidden\'}}"','aria-hidden="true"'])
+                                        html.Span(label)
                                 html.Button('Restore default layout',click='window.nimWorkspace.reset()',raw_attrs=['role="menuitem"'])
                         html.Button('{{ project_name ? \"Add sample\" : \"Open volume\" }}', id='open-volume', click=self.open_volume_picker,disabled=('volume_loading',))
                         with html.Select(v_model=('sample_choice',),raw_attrs=['aria-label="Active sample"'],v_if=('sample_choices.length',),disabled=('volume_loading',)):
@@ -68,10 +71,10 @@ class ApplicationUI:
                                                max=180 if field == 'angle' else ('beam_limit_um',),step=.1,
                                                title=f'{label} slider',aria_label=f'{label} slider',disabled=('volume_loading',))
                                     if field == 'angle':
-                                        with html.Button(id='rotation-play',classes='rotation-button',disabled=('rotation_playing',),title='Play rotation',raw_attrs=['aria-label="Play"']):
-                                            quasar.QIcon(name='play_arrow',raw_attrs=['aria-hidden="true"'])
-                                        with html.Button(id='rotation-pause',classes='rotation-button',disabled=('!rotation_playing',),title='Pause rotation',raw_attrs=['aria-label="Pause"']):
-                                            quasar.QIcon(name='pause',raw_attrs=['aria-hidden="true"'])
+                                        with html.Button(id='rotation-toggle',classes='rotation-button',
+                                                title=("rotation_playing ? 'Pause rotation' : 'Play rotation'",),
+                                                raw_attrs=[':aria-label="rotation_playing ? \'Pause\' : \'Play\'"']):
+                                            quasar.QIcon(name=("rotation_playing ? 'pause' : 'play_arrow'",),raw_attrs=['aria-hidden="true"'])
                                         with html.Div(classes='rotation-settings-anchor'):
                                             with html.Button(id='rotation-settings',classes='rotation-button',title='Rotation settings',raw_attrs=['aria-label="Rotation settings"','aria-haspopup="dialog"']):
                                                 self.svg_icon('adjustments.svg')
@@ -97,29 +100,58 @@ class ApplicationUI:
                     with html.Label():
                         html.Span('Opacity ')
                         html.Input(type='range',v_model=('opacity',),min=.05,max=1,step=.05,style='width:90px',aria_label='Volume opacity',disabled=('volume_loading',))
-                    html.Button('Reset camera',click=self.reset_camera,disabled=('volume_loading',))
+                    with html.Div():
+                        html.Button('Saved views',id='saved-views',classes='project-menu-trigger',disabled=('volume_loading',),raw_attrs=['aria-label="Saved views"','aria-haspopup="menu"'])
+                        with quasar.QMenu(target='#saved-views',auto_close=True,classes='project-menu saved-views-menu'):
+                            html.Button('{{ item.name }}',v_for='item in saved_view_items',key=('item.id',),
+                                        click=(self.recall_saved_view,'[item.id,sample_context]'),raw_attrs=['role="menuitem"'])
+                            quasar.QSeparator(v_if=('saved_view_items.length',))
+                            html.Button('Save current view…',click=(self.begin_save_view,'[{beam_x:draft_x,beam_y:draft_y,angle:draft_angle},sample_context]'),raw_attrs=['role="menuitem"'])
+                            html.Button('Manage saved views…',click=self.manage_saved_views,disabled=('!saved_view_items.length',),raw_attrs=['role="menuitem"'])
+                            quasar.QSeparator()
+                            html.Button('Default camera',click=self.reset_camera,raw_attrs=['role="menuitem"'])
                     html.Button('Beam view',click=lambda: self.reset_camera(True),disabled=('volume_loading',))
                     with html.Details(classes='beam-size'):
-                        html.Summary('Contrast')
+                        html.Summary('Contrast',title='Minimum and maximum map sample intensities to 0–1 for colour and opacity.')
                         for field,label in [('contrast_low','Minimum'),('contrast_high','Maximum')]:
                             with html.Label():
                                 html.Span(label+' ')
                                 html.Input(type='number',v_model=(field,),step=('contrast_step',),aria_label='Contrast '+label.lower(),disabled=('volume_loading',))
                         html.Button('Reset contrast',click=self.reset_contrast,
                                     title='Restore the initial contrast range for this sample',disabled=('volume_loading',))
-                        html.P('Minimum and maximum map sample intensities to 0–1 for colour and opacity.',classes='settings-help')
                     with html.Div(classes='view-help-anchor'):
-                        with html.Button(id='view-help',classes='rotation-button',title='View controls',raw_attrs=['aria-label="View controls"']):
+                        with html.Button(id='view-help',classes='rotation-button',title='Help on view controls',raw_attrs=['aria-label="View controls"']):
                             quasar.QIcon(name='help_outline',raw_attrs=['aria-hidden="true"'])
                         with quasar.QMenu(target='#view-help',classes='view-help',no_refocus=True):
                             html.Strong('View controls')
-                            html.P('Drag to orbit. Scroll to zoom. Alt+Shift+drag to move the beam.')
+                            html.P('In the µCT volume viewer, click and drag with the left mouse button to view the sample from other directions. Scroll the mouse wheel to zoom in or out.')
+                            html.P('Hold Shift while dragging with the left button to pan, or Ctrl to roll the view. Hold both Shift and Ctrl to zoom. You can also pan with the middle button and zoom with the right button.')
+                            html.P('Hold Alt+Shift and drag with the left button to move the beam.')
                             html.P('The sample rotates about Y; the beam travels along Z, from light to dark.')
                 self.workspace.build()
                 with html.Div(classes='app-footer'):
                     html.Span('{{ volume_summary }}')
                     html.Span('{{ project_error }}',v_if=('project_error',),role='alert',classes='picker-error')
+                    html.Span('{{ saved_view_error }}',v_if=('saved_view_error',),role='alert',classes='picker-error')
+                    html.Span('{{ workspace_error }}',v_if=('workspace_error',),role='alert',classes='picker-error')
                     html.Span('{{ status }}')
+                with quasar.QDialog(v_model=('show_saved_view_dialog',)):
+                    with quasar.QCard(classes='saved-view-card',raw_attrs=['role="dialog"','aria-labelledby="saved-view-title"']):
+                        with quasar.QCardSection():
+                            html.H2("{{ saved_view_mode === 'save' ? 'Save current view' : saved_view_mode === 'rename' ? 'Rename saved view' : 'Saved views' }}",id='saved-view-title')
+                            with html.Div(v_if=("saved_view_mode !== 'manage'",)):
+                                html.Label('Name',raw_attrs=['for="saved-view-name"'])
+                                html.Input(id='saved-view-name',type='text',v_model=('saved_view_name',),
+                                           keydown_enter=self.commit_saved_view,__events=[('keydown_enter','keydown.enter.prevent')])
+                            with html.Div(v_else=True):
+                                with html.Div(v_for='item in saved_view_items',key=('item.id',),classes='saved-view-row'):
+                                    html.Span('{{ item.name }}')
+                                    html.Button('Rename',click=(self.begin_rename_saved_view,'[item.id,sample_context]'),raw_attrs=[':aria-label="\'Rename \' + item.name"'])
+                                    html.Button('Delete',click=(self.delete_saved_view,'[item.id,sample_context]'),raw_attrs=[':aria-label="\'Delete \' + item.name"'])
+                            html.P('{{ saved_view_error }}',v_if=('saved_view_error',),role='alert',classes='picker-error')
+                        with quasar.QCardActions(align='right'):
+                            html.Button("{{ saved_view_mode === 'manage' ? 'Close' : 'Cancel' }}",click=self.cancel_saved_view_dialog)
+                            html.Button('Save',v_if=("saved_view_mode !== 'manage'",),click=self.commit_saved_view,disabled=('volume_loading',))
                 self.project_dialog()
                 with quasar.QDialog(model_value=('show_sample_settings',),update_model_value=(self.close_sample_settings,'[$event]')):
                     with quasar.QCard(classes='sample-settings-card',raw_attrs=['role="dialog"','aria-labelledby="sample-settings-title"']):
@@ -161,7 +193,20 @@ class ApplicationUI:
                             html.P(DESCRIPTION)
                             html.P(BUILD, classes='about-muted')
                             html.P(COLLABORATION)
-                            html.P('{{ data_notice }}', classes='about-muted')
+                            with html.Div(classes='infrastructure-links'):
+                                for label,url,image in [('InfraVis','https://infravis.se/','infravis.svg'),
+                                                        ('MAX IV','https://www.maxiv.lu.se/','maxiv.png'),
+                                                        ('NAISS','https://www.naiss.se/','naiss.png')]:
+                                    with html.A(href=url, target='_blank', rel='noopener noreferrer', title=label,aria_label=label):
+                                        if image.endswith('.svg'):
+                                            logo = (Path(__file__).parent/'assets/logos'/image).read_text()
+                                            logo = re.sub(r'<style>.*?</style>', '', logo[logo.index('<svg'):], flags=re.S)
+                                            logo = logo.replace('class="cls-2"', 'fill="currentColor"').replace('class="cls-1"', 'fill="url(#gradient-rainbow_2_copy)"')
+                                            html.Span(logo,classes='infrastructure-logo',raw_attrs=['aria-hidden="true"'])
+                                        else:
+                                            html.Span(classes='infrastructure-logo monochrome-logo',style=f'mask-image:url(/nim-assets/logos/{image});-webkit-mask-image:url(/nim-assets/logos/{image})',raw_attrs=['aria-hidden="true"'])
+                            if COPYRIGHT:
+                                html.P(COPYRIGHT, classes='about-muted')
                             licence_file = Path(__file__).with_name('LICENSE')
                             if not licence_file.exists():
                                 licence_file = Path(__file__).parents[2] / 'LICENSE'
@@ -169,8 +214,6 @@ class ApplicationUI:
                                 with html.Details():
                                     html.Summary(LICENSE_NAME)
                                     html.Pre(licence_file.read_text(), classes='licence-text')
-                            if COPYRIGHT:
-                                html.P(COPYRIGHT, classes='about-muted')
                             html.H3('Built with')
                             with html.Div(classes='dependency-versions'):
                                 for label,package,url in [
@@ -191,12 +234,6 @@ class ApplicationUI:
                                     with html.Div(classes='dependency-item'):
                                         html.A(label, href=url, target='_blank', rel='noopener noreferrer')
                                         html.Span(installed)
-                            with html.Div(classes='infrastructure-links'):
-                                for label,url,image in [('InfraVis','https://infravis.se/','infravis.svg'),
-                                                        ('MAX IV','https://www.maxiv.lu.se/','maxiv.png'),
-                                                        ('NAISS','https://www.naiss.se/','naiss.png')]:
-                                    with html.A(href=url, target='_blank', rel='noopener noreferrer', title=label):
-                                        html.Img(src=f'/nim-assets/logos/{image}', alt=label)
                             html.P('Dependencies retain their own licences.', classes='about-muted')
                         with quasar.QCardActions(align='right'):
                             html.Button('Close', click='show_about = false')
@@ -264,7 +301,7 @@ class ApplicationUI:
                                 html.Input(id='project-new-folder',type='text',v_model=('project_new_folder',))
                                 html.Button('Create folder',click=self.create_project_folder)
                             with html.Label(v_if=("picker_mode !== 'project_directory'",)):
-                                html.Span('Preview budget (MiB) ')
+                                html.Span('Voxel array size limit (MiB) ',title='Maximum size of the voxel array loaded into RAM for volume rendering.')
                                 html.Input(type='number',v_model=('volume_preview_mib',),min=1,step=16,disabled=('volume_loading',))
                             html.P('{{ volume_error }}',v_if=('volume_error',),classes='picker-error',role='alert')
                             html.P('{{ volume_progress }}',v_if=('volume_loading',),role='status')

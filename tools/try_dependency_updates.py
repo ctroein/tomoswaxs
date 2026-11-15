@@ -128,7 +128,7 @@ def check_environment(python, source, artifacts, port):
         sock.bind(('127.0.0.1', port))
     url = f'http://127.0.0.1:{port}'
     with (artifacts/'server.log').open('w') as output:
-        server = subprocess.Popen([str(python), '-m', 'nim_ct_saxs', '--server', '--port', str(port),
+        server = subprocess.Popen([str(python), '-m', 'tomoswaxs', '--server', '--port', str(port),
                                    '--timeout', '0'], cwd=artifacts, env=env,
                                   stdout=output, stderr=subprocess.STDOUT)
         try:

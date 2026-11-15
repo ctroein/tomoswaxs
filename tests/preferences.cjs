@@ -1,6 +1,6 @@
 /* Run with node tests/preferences.cjs. */
 const assert = require('node:assert/strict');
-const {KEY,defaults,normalise,load,save,plotLayout,plotData} = require('../src/nim_ct_saxs/assets/preferences.js');
+const {KEY,defaults,normalise,load,save,plotLayout,plotData} = require('../src/tomoswaxs/assets/preferences.js');
 module.exports = function checkPreferences() {
   const values = new Map();
   const storage = {getItem:key => values.get(key) ?? null,

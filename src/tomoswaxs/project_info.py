@@ -1,5 +1,5 @@
 """Project identity shared by the application and its About dialog."""
-NAME = 'NIM µCT-SAXS'
+NAME = 'TomoSWAXS'
 DESCRIPTION = 'µCT and SAXS visualization for beamline workflows'
 BUILD = 'Development prototype'
 LICENSE_NAME = 'MIT License'

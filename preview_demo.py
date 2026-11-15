@@ -6,7 +6,7 @@ from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from nim_ct_saxs.synthetic_demo import generate, scattering
+from tomoswaxs.synthetic_demo import generate, scattering
 
 base = Path(__file__).parent
 data_dir = base.parent/'data'

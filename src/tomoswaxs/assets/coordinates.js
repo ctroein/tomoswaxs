@@ -138,9 +138,11 @@
   document.addEventListener('lostpointercapture',release,true);
   document.addEventListener('focusout',event=>{if(isCoordinate(event.target)) finish();});
   document.addEventListener('click',event=>{
-    if (event.target.closest('#open-volume, #open-project')) rotation.pause();
-    if (event.target.closest('#rotation-play')) rotation.play();
-    if (event.target.closest('#rotation-pause')) rotation.pause();
+    if (event.target.closest('#open-volume, #open-project, #saved-views')) rotation.pause();
+    if (event.target.closest('#rotation-toggle')) {
+      if(state.get('rotation_playing')) rotation.pause();
+      else rotation.play();
+    }
   });
   document.addEventListener('visibilitychange',()=>{if(document.hidden) rotation.pause();});
 })();

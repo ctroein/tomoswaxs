@@ -1,7 +1,9 @@
 # Infrastructure logos
 
 Official logos bundled unchanged for collaboration credits in About.
-The logos retain their original owners’ rights.
+The logos retain their original owners’ rights. About renders the white lettering
+with the theme’s text colour; InfraVis retains its colour gradient. The bundled
+files remain unchanged.
 
 - InfraVis: `white text.svg` in https://infravis.se/wp-content/uploads/2026/02/InfraVis-logo.zip
   (linked from https://infravis.se/branding/).

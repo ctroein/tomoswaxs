@@ -5,9 +5,9 @@ import numpy as np
 import vtk
 from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 from trame.app import get_server
-from nim_ct_saxs.app import Demo
-from nim_ct_saxs.orientation import sample_rotation
-from nim_ct_saxs.synthetic_demo import scattering
+from tomoswaxs.app import Demo
+from tomoswaxs.orientation import sample_rotation
+from tomoswaxs.synthetic_demo import scattering
 
 
 class OrientationChecks(unittest.TestCase):

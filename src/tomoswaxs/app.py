@@ -1,4 +1,4 @@
-"""NIM: CT volume visualization with illustrative SAXS data."""
+"""TomoSWAXS: CT volume visualization with illustrative SAXS data."""
 from pathlib import Path
 from dataclasses import replace
 import math
@@ -13,18 +13,20 @@ from .synthetic_demo import make_volume, scattering
 from .orientation import sample_rotation
 from .project_info import NAME
 from .volumes import VolumeSource, import_tiff, tiff_spacing, is_ome_zarr, directory_entries, import_pixel_size, replace_import_pixel_size, spacing_xyz
-from .projects import legacy_axis
+from .projects import legacy_axis, VIEW_FIELDS
 from .project_workflow import ProjectWorkflow
 from .ui import ApplicationUI
+from .saved_views import SavedViews
+from .volume_viewing import VolumeViewing
 
 
-class Demo(ApplicationUI, ProjectWorkflow):
+class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
     def __init__(self, server=None, volume=None, data_directory=None, preview_mib=64):
         self.server = server or get_server(client_type='vue3')
         self.state = self.server.state
         self.state.trame__title = NAME
         self.server.enable_module(dict(serve={'nim-assets': str(Path(__file__).parent/'assets')},
-                                       styles=[f"/nim-assets/app.css?v={Path(__file__).parent.joinpath('assets/app.css').stat().st_mtime_ns}"], scripts=[f"/nim-assets/{name}?v={Path(__file__).parent.joinpath('assets',name).stat().st_mtime_ns}" for name in ('updates.js','beam.js','workspace.js','preferences.js','coordinates.js')]))
+                                       styles=[f"/nim-assets/app.css?v={Path(__file__).parent.joinpath('assets/app.css').stat().st_mtime_ns}"], scripts=[f"/nim-assets/{name}?v={Path(__file__).parent.joinpath('assets',name).stat().st_mtime_ns}" for name in ('updates.js','beam.js','workspace.js','preferences.js','coordinates.js','crop.js')]))
         self.volume, self.spacing, self.origin = make_volume()
         self.signal_volume = self.volume
         self.volume_source = None
@@ -33,7 +35,7 @@ class Demo(ApplicationUI, ProjectWorkflow):
         self.beam_length = 4.5
         self.state.update(beam_x=250., beam_y=0., radius_x=60., radius_y=40.,
                           angle=0., rotation_axis='y', sample_settings_notice='',
-                          sample_pixel_size_editable=False,sample_voxel_x=1.,sample_voxel_y=1.,sample_voxel_z=1.,sample_voxel_linked=True, opacity=.55, workspace_ready=False,
+                          sample_pixel_size_editable=False,sample_voxel_x=1.,sample_voxel_y=1.,sample_voxel_z=1.,sample_voxel_linked=True, opacity=.55, workspace_ready=False, workspace_tabs=[], workspace_detached=[], workspace_busy=[], workspace_error='',
                           status='Ready', log_iq=False, show_about=False, show_sample_settings=False, ui_theme='dark', ui_text_scale=100,
                           draft_x=250., draft_y=0., draft_angle=0., rotation_playing=False, rotation_fps=20,rotation_step=1.5,rotation_settings_open=False,
                           beam_limit_um=1600, contrast_low=0., contrast_high=65535., contrast_step=100.,
@@ -45,11 +47,13 @@ class Demo(ApplicationUI, ProjectWorkflow):
                           volume_destination='', volume_prepared_path='', volume_preview_mib=preview_mib, volume_progress='',
                           volume_error='', volume_loading=False)
         self.init_projects()
+        self.init_saved_views()
+        self.init_volume_viewing()
         if volume is not None:
             self.set_volume_data(volume)
         self.sync_project()
         self.list_volume_directory()
-        self.state.client_only('workspace_ready','show_about','show_sample_settings','show_project','project_menu_open','ui_theme','ui_text_scale','draft_x','draft_y','draft_angle','rotation_playing','rotation_fps','rotation_step','rotation_settings_open')
+        self.state.client_only('workspace_ready','workspace_tabs','workspace_detached','workspace_busy','workspace_error','show_about','show_sample_settings','show_project','project_menu_open','ui_theme','ui_text_scale','draft_x','draft_y','draft_angle','rotation_playing','rotation_fps','rotation_step','rotation_settings_open')
         self.dragging_beam = False
         self.dragging_controls = False
         self._applying_pose = False
@@ -93,6 +97,7 @@ class Demo(ApplicationUI, ProjectWorkflow):
                           contrast_step=10.**math.floor(math.log10((self.contrast[1]-self.contrast[0])/100)),
                           data_notice='CT volume · SYNTHETIC SAXS',
                           volume_summary=f'{volume.path.name} · {dimensions} voxels · XYZ spacing {source_spacing} µm · preview {preview} at {spacing} µm')
+        self.sync_volume_controls(volume)
 
     def apply_import_pixel_size(self):
         if self.state.volume_loading or self.volume_source is None:
@@ -109,13 +114,14 @@ class Demo(ApplicationUI, ProjectWorkflow):
             source = VolumeSource(path)
             cached = self.loaded_volume
             scale,origin = source.geometry(source.images[cached.level])
+            origin=origin+(np.array([s.start for s in cached.selection][::-1])*scale if cached.selection else 0)
             volume = replace(cached,source=source,spacing=scale*cached.stride,origin=origin)
             self._applying_pose = True
             try:
                 self.state.sample_context = uuid.uuid4().hex
                 self.set_volume_data(volume,rotation_axis=self.state.rotation_axis)
                 for key,value in view.items():
-                    if key != 'camera':
+                    if key in VIEW_FIELDS:
                         if key in ('beam_x','beam_y'):
                             value = float(np.clip(value,-self.beam_limit_um,self.beam_limit_um))
                         self.state[key] = value
@@ -220,7 +226,8 @@ class Demo(ApplicationUI, ProjectWorkflow):
         image.SetOrigin(*self.origin)
         image.GetPointData().SetScalars(numpy_to_vtk(self.volume.ravel(), deep=False))
         self.mapper.SetInputData(image)
-        self.sample.GetProperty().SetScalarOpacityUnitDistance(float(np.min(self.spacing)))
+        source=self.volume_source if self.volume_source is not None else self._synthetic_source
+        self.sample.GetProperty().SetScalarOpacityUnitDistance(float(np.min(source.spacing)))
 
     def build_scene(self):
         mapper = vtk.vtkSmartVolumeMapper()
@@ -289,6 +296,7 @@ class Demo(ApplicationUI, ProjectWorkflow):
         interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
         interactor.Initialize()
         self.interactor = interactor
+        self.build_crop_widget()
         self.reset_camera()
         self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.limit_zoom)
         self.renderer.AddObserver(vtk.vtkCommand.EndEvent,lambda *_: self.schedule_project_save())
@@ -386,6 +394,7 @@ class Demo(ApplicationUI, ProjectWorkflow):
         self.beam.SetPosition(p['beam_x'],p['beam_y'],0)
         self.beam.SetScale(p['radius_x'],p['radius_y'],self.beam_length/4.5)
         self.update_beam_colors()
+        self.update_crop_widget()
         try:
             low, high = float(self.state.contrast_low), float(self.state.contrast_high)
             if not (math.isfinite(low) and math.isfinite(high) and high > low):
@@ -408,8 +417,8 @@ class Demo(ApplicationUI, ProjectWorkflow):
         if not self.dragging_beam and not self.dragging_controls and key != getattr(self,'last_signal_key',None):
             self.last_signal_key = key
             source = self.volume_source
-            self.signal = scattering(self.signal_volume, source.spacing if source else self.spacing,
-                                     source.origin if source else self.origin,*key,
+            self.signal = scattering(self.signal_volume, source.spacing if source else self._synthetic_source.spacing,
+                                     source.origin if source else self._synthetic_source.origin,*key,
                                      intensity_range=self.contrast if source else None,
                                      rotation_axis=self.state.rotation_axis)
             self.update_plots()
@@ -509,13 +518,13 @@ def main():
     import argparse
     import sys
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--project',type=Path,help='Open a NIM project file or directory')
+    parser.add_argument('--project',type=Path,help='Open a TomoSWAXS project file or directory')
     parser.add_argument('--volume',type=Path,help='OME-Zarr image on the application host')
     parser.add_argument('--import-tiff',type=Path,help='Import TIFF into OME-Zarr, then open it')
     parser.add_argument('--output',type=Path,help='New OME-Zarr import destination')
     parser.add_argument('--import-only',action='store_true',help='Finish after conversion without starting the viewer')
     parser.add_argument('--voxel-size-um',type=float,nargs='+',help='Explicit TIFF voxel spacing: one value or X Y Z, in µm')
-    parser.add_argument('--preview-mib',type=float,default=64,help='Rendering preview budget in MiB (default: 64)')
+    parser.add_argument('--preview-mib',type=float,default=64,help='Maximum loaded voxel array size in MiB (default: 64)')
     parser.add_argument('--data-dir',type=Path,help='Initial directory for the GUI file selector')
     args, remaining = parser.parse_known_args()
     if '-h' in remaining or '--help' in remaining:
@@ -523,7 +532,7 @@ def main():
     sys.argv[1:] = remaining
     try:
         if not math.isfinite(args.preview_mib) or args.preview_mib < 1:
-            raise ValueError('Preview budget must be at least 1 MiB.')
+            raise ValueError('Voxel array size limit must be at least 1 MiB.')
         if args.import_only and not args.import_tiff:
             raise ValueError('--import-only requires --import-tiff.')
         if args.project and (args.volume or args.import_tiff):

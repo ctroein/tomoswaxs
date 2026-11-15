@@ -13,9 +13,9 @@ import numpy as np
 import tifffile
 from trame.app import get_server
 
-from nim_ct_saxs.app import Demo
-from nim_ct_saxs.projects import Project, legacy_axis
-from nim_ct_saxs.volumes import VolumeSource, import_tiff
+from tomoswaxs.app import Demo
+from tomoswaxs.projects import Project, legacy_axis
+from tomoswaxs.volumes import VolumeSource, import_tiff
 
 
 class ProjectChecks(unittest.TestCase):
@@ -43,7 +43,7 @@ class ProjectChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             project=Project.create(folder,'Experiment')
             before=project.path.read_bytes()
-            with patch('nim_ct_saxs.projects.os.replace',side_effect=PermissionError('read-only')):
+            with patch('tomoswaxs.projects.os.replace',side_effect=PermissionError('read-only')):
                 with self.assertRaises(PermissionError):
                     project.change(name='Changed')
             self.assertEqual(project.path.read_bytes(),before)

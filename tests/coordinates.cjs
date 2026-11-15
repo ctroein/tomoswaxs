@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs=require('node:fs'), vm=require('node:vm'), path=require('node:path');
-const {createLatestUpdates} = require('../src/nim_ct_saxs/assets/updates.js');
-const {wrapAngle,createRotation,createPixelSizes} = require('../src/nim_ct_saxs/assets/coordinates.js');
+const {createLatestUpdates} = require('../src/tomoswaxs/assets/updates.js');
+const {wrapAngle,createRotation,createPixelSizes} = require('../src/tomoswaxs/assets/coordinates.js');
 module.exports = async function checkCoordinates() {
   assert.equal(wrapAngle(185),-175);
   assert.equal(wrapAngle(-185),175);
@@ -60,7 +60,7 @@ module.exports = async function checkCoordinates() {
     values[key]=value;
     listeners.forEach(fn=>fn({type:'dirty-state',keys:[key]}));
   }};
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/nim_ct_saxs/assets/coordinates.js'),'utf8'),{
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/tomoswaxs/assets/coordinates.js'),'utf8'),{
     window:{trame:{state},nimUpdates:{submit:(kind,value)=>submitted.push([kind,value])}},
     document:{addEventListener:(name,fn)=>{handlers[name]=fn;},hidden:false},
     performance:{now:()=>0},setTimeout:()=>1,clearTimeout(){},console,
@@ -98,6 +98,17 @@ module.exports = async function checkCoordinates() {
   requestedFrequency=20;queueClock=150;retry();
   assert.equal(sent,2,'Playback frequency replaces the fixed interaction interval');
   await new Promise(setImmediate);
+
+  values.rotation_fps=20;values.rotation_step=1.5;
+  const clickTarget=id=>({target:{closest:selector=>selector.split(',').some(part=>part.trim()===id) ? {} : null}});
+  handlers.click(clickTarget('#rotation-toggle'));
+  assert.equal(values.rotation_playing,true);
+  handlers.click(clickTarget('#rotation-toggle'));
+  assert.equal(values.rotation_playing,false,'Clicking the playing button pauses rotation');
+  handlers.click(clickTarget('#rotation-toggle'));
+  assert.equal(values.rotation_playing,true);
+  handlers.click(clickTarget('#saved-views'));
+  assert.equal(values.rotation_playing,false,'Opening saved views pauses playback before capture or recall');
 
   const calls=[], resolvers=[];
   const queue=createLatestUpdates((kind,value)=>{

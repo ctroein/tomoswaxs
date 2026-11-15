@@ -46,6 +46,7 @@ class ProjectWorkflow:
                           project_relink_choice=(project.document.get('active_sample_id') or next((s['id'] for s in project.document['samples']),'')) if project else '',
                           sample_choices=[dict(id=s['id'],name=s['name']) for s in project.document['samples']] if project else [],
                           sample_choice=self.active_sample_id or '')
+        self.sync_saved_views()
 
     def capture_view(self):
         if self.parameters() is None:
@@ -58,6 +59,7 @@ class ProjectWorkflow:
                             view_up=list(camera.GetViewUp()),view_angle=camera.GetViewAngle(),
                             parallel_scale=camera.GetParallelScale(),parallel_projection=bool(camera.GetParallelProjection()),
                             zoom_out_limit=self.zoom_out_limit)
+        view['volume']=self.volume_view_state()
         validate_view(view)
         return view
 
@@ -127,6 +129,8 @@ class ProjectWorkflow:
         self.project_dialog_visibility(True)
 
     def show_project_settings(self):
+        if self.project:
+            self.state.project_name_draft=self.project.document['name']
         self.state.project_dialog_mode='settings'
         self.project_dialog_visibility(True)
 
@@ -143,7 +147,7 @@ class ProjectWorkflow:
             project=Project.create(directory,directory.name)
             if view is not None:
                 project.add_sample(self.volume_source.path if self.volume_source else None,self.state.sample_name,
-                                   self.state.rotation_axis,view)
+                                   self.state.rotation_axis,view,saved_views=self.current_saved_views())
             self.project=project
             self.active_sample_id=project.document['active_sample_id']
             self.state.sample_context=uuid.uuid4().hex
@@ -168,7 +172,7 @@ class ProjectWorkflow:
             return
         try:
             self.active_sample_id=self.project.add_sample(self.volume_source.path if self.volume_source else None,
-                self.state.sample_name,self.state.rotation_axis,self.capture_view())
+                self.state.sample_name,self.state.rotation_axis,self.capture_view(),saved_views=self.current_saved_views())
             self.state.sample_context=uuid.uuid4().hex
             self.state.project_error=''; self.sync_project()
         except (OSError,ValueError) as error:
@@ -176,12 +180,24 @@ class ProjectWorkflow:
 
     def rename_project(self):
         if not self.project or self.state.volume_loading:
-            return
+            return False
         try:
-            self.project.change(name=self.state.project_name_draft.strip())
-            self.state.project_error=''; self.sync_project()
+            name=self.state.project_name_draft.strip()
+            self.project.change(name=name)
+            self.state.update(project_name=name,project_name_draft=name,project_error='')
+            return True
         except (OSError,ValueError) as error:
             self.state.project_error=str(error)
+            return False
+
+    def close_project_dialog(self,visible=False):
+        if visible:
+            return
+        if self.state.project_dialog_mode=='settings' and self.project and not self.rename_project():
+            self.project_dialog_visibility(True)
+        else:
+            self.project_dialog_visibility(False)
+        self.state.flush()
 
     def rename_sample(self):
         if not self.project or not self.active_sample_id or self.state.volume_loading:
@@ -195,6 +211,7 @@ class ProjectWorkflow:
     def close_project(self):
         if self.state.volume_loading or not self.persist_active():
             return
+        self.cache_current_saved_views()
         self.project=None; self.active_sample_id=None
         self.state.project_error=''
         self.state.sample_context=uuid.uuid4().hex
@@ -279,7 +296,7 @@ class ProjectWorkflow:
             identifier=None
             if attach:
                 identifier=project.add_sample(self.volume_source.path if self.volume_source else None,
-                    self.state.sample_name,self.state.rotation_axis,self.capture_view())
+                    self.state.sample_name,self.state.rotation_axis,self.capture_view(),saved_views=self.current_saved_views())
             self.project=project; self.active_sample_id=identifier
             self._attach_current=False
             self.state.sample_context=uuid.uuid4().hex
@@ -320,6 +337,8 @@ class ProjectWorkflow:
 
     def relink_sample(self):
         if not self.project or self.state.volume_loading or not self.state.project_relink_choice:
+            return
+        if not self.rename_project():
             return
         self._relink_id=self.state.project_relink_choice
         self.state.update(picker_mode='relink',show_volume_picker=True)
@@ -375,12 +394,13 @@ class ProjectWorkflow:
         try:
             budget=float(self.state.volume_preview_mib)
             if not math.isfinite(budget) or budget<1:
-                raise ValueError('Preview budget must be at least 1 MiB.')
+                raise ValueError('Voxel array size limit must be at least 1 MiB.')
+            self.cancel_render_load()
             context=uuid.uuid4().hex
             self.state.sample_context=context
             self._volume_cancel=threading.Event()
             cancel=self._volume_cancel
-            self.state.update(volume_loading=True,volume_error='',volume_progress='Opening preview…')
+            self.state.update(volume_loading=True,volume_error='',volume_progress='Opening volume…')
             self.state.flush()
             loop=asyncio.get_running_loop()
             def report(text):
@@ -391,7 +411,13 @@ class ProjectWorkflow:
                     loop.call_soon_threadsafe(update)
             def read():
                 selected=import_tiff(path,destination,spacing,cancel,report) if is_tiff else path
-                return VolumeSource(selected).preview(budget,cancel=cancel) if selected is not None else None
+                selection=record.get('view',{}).get('volume',{}) if record else {}
+                if selected is None:return None
+                source=VolumeSource(selected)
+                level=selection.get('level','auto')
+                options=source.level_options(budget,selection.get('crop'))
+                if level!='auto' and (level>=len(options) or not options[level]['fits']):level='auto'
+                return source.preview(budget,cancel=cancel,crop=selection.get('crop'),level=level)
             volume=await asyncio.to_thread(read)
             if cancel.is_set():
                 raise ImportCancelled('Load cancelled.')
@@ -401,7 +427,8 @@ class ProjectWorkflow:
             if project:
                 if record is None:
                     identifier=project.add_sample(volume.path if volume else None,
-                        path.stem if path is not None else 'Synthetic specimen',axis,identifier=self._import_sample_id)
+                        path.stem if path is not None else 'Synthetic specimen',axis,identifier=self._import_sample_id,
+                        saved_views=self.standalone_saved_views(volume.path if volume else None))
                     record=project.sample(identifier)
                 elif relink:
                     datasets={**record['datasets'],'ct':{'format':'ome-zarr','path':project.reference(volume.path)}}
@@ -414,6 +441,15 @@ class ProjectWorkflow:
                 else:
                     self.volume,self.spacing,self.origin=make_volume()
                     self.volume_source=None; self.signal_volume=self.volume; self.contrast=(0.,65535.)
+                    self.sync_volume_controls()
+                    selection=record.get('view',{}).get('volume',{}) if record else {}
+                    if selection:
+                        level=selection.get('level','auto')
+                        options=self._synthetic_source.level_options(budget,selection.get('crop'))
+                        if level!='auto' and (level>=len(options) or not options[level]['fits']):level='auto'
+                        rendered=self._synthetic_source.preview(budget,crop=selection.get('crop'),level=level)
+                        self.volume,self.spacing,self.origin=rendered.values,rendered.spacing,rendered.origin
+                        self.sync_volume_controls(rendered)
                     self.beam_limit_um=1600; self.beam_length=4.5
                     self.state.update(sample_pixel_size_editable=False,beam_limit_um=1600,beam_x=250.,beam_y=0.,angle=0.,contrast_low=0.,contrast_high=65535.,
                                       contrast_step=100.,volume_summary='Synthetic specimen',
@@ -470,14 +506,13 @@ class ProjectWorkflow:
                             disabled=('volume_loading',),raw_attrs=['role="menuitem"'])
 
     def project_dialog(self):
-        with quasar.QDialog(v_model=('show_project',)):
+        with quasar.QDialog(model_value=('show_project',),update_model_value=(self.close_project_dialog,'[$event]')):
             with quasar.QCard(classes='project-card',raw_attrs=['role="dialog"','aria-labelledby="project-title"']):
                 with quasar.QCardSection():
                     html.H2('{{ project_dialog_mode === "new" ? "New project" : project_dialog_mode === "open" ? "Open project" : project_dialog_mode === "attach" ? "Add to project" : "Project settings" }}',id='project-title')
                     with html.Div(v_if=("project_dialog_mode === 'settings'",)):
                         html.Label('Name',raw_attrs=['for="project-name"'])
                         html.Input(id='project-name',v_model=('project_name_draft',),disabled=('volume_loading',))
-                        html.Button('Rename project',click=self.rename_project,disabled=('volume_loading',))
                         html.P('Project file: {{ project_open_path }}',classes='settings-help')
                         html.Label('Sample to locate',raw_attrs=['for="relink-sample"'])
                         with html.Select(id='relink-sample',v_model=('project_relink_choice',),disabled=('volume_loading',)):
@@ -502,7 +537,7 @@ class ProjectWorkflow:
                     html.P('{{ project_error }}',v_if=('project_error',),role='alert',classes='picker-error')
                 with quasar.QCardActions(align='right'):
                     html.Button('Cancel',v_if=("project_dialog_mode !== 'settings'",),click='show_project = false')
-                    html.Button('Done',v_if=("project_dialog_mode === 'settings'",),click='show_project = false')
+                    html.Button('Close',v_if=("project_dialog_mode === 'settings'",),click=self.close_project_dialog)
                     html.Button('Create project',v_if=("project_dialog_mode === 'new'",),click=self.create_project,
                                 disabled=('volume_loading || !project_new_directory',))
                     html.Button('Open project',v_if=("project_dialog_mode === 'open'",),click=self.open_project,

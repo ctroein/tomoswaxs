@@ -12,9 +12,9 @@ import numpy as np
 import tifffile
 from trame.app import get_server
 
-from nim_ct_saxs.volumes import (VolumeSource, TiffBlocks, import_tiff, ImportCancelled,
+from tomoswaxs.volumes import (VolumeSource, TiffBlocks, import_tiff, ImportCancelled,
                                 directory_entries, tiff_spacing, import_pixel_size, replace_import_pixel_size)
-from nim_ct_saxs.app import Demo
+from tomoswaxs.app import Demo
 
 
 class VolumeChecks(unittest.TestCase):

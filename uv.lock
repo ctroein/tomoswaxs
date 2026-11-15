@@ -466,7 +466,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nim-ct-saxs"
+name = "tomoswaxs"
 version = "0.1.0.dev0"
 source = { editable = "." }
 dependencies = [

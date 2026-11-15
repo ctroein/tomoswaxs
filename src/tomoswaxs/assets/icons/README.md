@@ -10,11 +10,14 @@ teal accent. The folder icon retains its orange fill.
 | Rotation settings | Local Tabler SVG | `adjustments.svg` |
 | Play rotation | Quasar Material Icons font | `play_arrow` |
 | Pause rotation | Quasar Material Icons font | `pause` |
+| Open/return a detached panel | Local NIM SVG | `open-window.svg` |
+| Close a panel tab | NIM tab renderer | `×` |
 | View controls help | Quasar Material Icons font | `help_outline` |
 
 SVG calls are in `ui.py` and the project dialog builder in `project_workflow.py`;
 font-icon calls are `quasar.QIcon(name=...)` in `ui.py`.
-Dockview supplies its own tab-close and group-control SVG icons.
+The tab renderer is in `workspace.py`. Dockview supplies group controls.
+`open-window.svg` is a NIM project icon, covered by the project MIT licence.
 
 The local SVGs were copied from Exhale’s `exhale/resources/icons` collection
 and adapted to use CSS colours. These are Tabler icons by Paweł Kuna; the MIT

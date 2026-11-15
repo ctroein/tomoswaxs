@@ -197,6 +197,9 @@ class Volume:
     source: object
     level: int
     stride: int = 1
+    crop: tuple | None = None          # XYZ, full-resolution cell indices [start, stop)
+    selection: tuple | None = None     # actual ZYX slices at the selected level
+    requested_level: str | int = 'auto'
 
 
 class VolumeSource:
@@ -237,26 +240,70 @@ class VolumeSource:
         # The SAXS mock requests a short list of points, grouped by Dask chunks.
         return self.data.vindex[key].compute(scheduler='single-threaded')
 
-    def preview(self, budget_mib=DEFAULT_PREVIEW_MIB, cancel=None):
-        budget = float(budget_mib)*1024**2
+    def crop_bounds(self, crop=None):
+        shape=tuple(map(int,self.shape[::-1]))
+        if crop is None:
+            return tuple((0,n) for n in shape)
+        if not isinstance(crop,(list,tuple)) or len(crop)!=3:
+            raise ValueError('Crop needs X, Y and Z bounds.')
+        result=[]
+        for pair,n in zip(crop,shape):
+            if (not isinstance(pair,(list,tuple)) or len(pair)!=2 or
+                any(type(v) not in (int,np.int64,np.int32) for v in pair) or
+                not 0 <= pair[0] < pair[1] <= n):
+                raise ValueError('Crop bounds must be whole voxel indices with start < end inside the sample.')
+            result.append(tuple(map(int,pair)))
+        return tuple(result)
+
+    def region_slices(self, crop, level):
+        image=self.images[level]
+        spacing,origin=self.geometry(image)
+        bounds=np.asarray(crop,dtype=float)
+        # Include coarse voxel cells intersecting the full-resolution ROI.
+        # NGFF levels may have translated centres (e.g. half-voxel averaging).
+        indices=(self.origin-origin)[:,None]/spacing[:,None]+(bounds-.5)*(self.spacing/spacing)[:,None]+.5
+        start=np.floor(indices[:,0]+1e-9).astype(int)
+        stop=np.ceil(indices[:,1]-1e-9).astype(int)
+        shape=np.asarray(image.data.shape[::-1])
+        start=np.clip(start,0,shape-1);stop=np.clip(stop,start+1,shape)
+        return tuple(slice(int(a),int(b)) for a,b in zip(start[::-1],stop[::-1]))
+
+    def level_options(self, budget_mib=DEFAULT_PREVIEW_MIB, crop=None):
+        crop=self.crop_bounds(crop)
+        budget=float(budget_mib)*1024**2
         if not math.isfinite(budget) or budget < 1024**2:
-            raise ValueError('Preview budget must be at least 1 MiB.')
-        level = len(self.images)-1
+            raise ValueError('Voxel array size limit must be at least 1 MiB.')
+        options=[]
         for i,image in enumerate(self.images):
-            if np.prod(image.data.shape)*image.data.dtype.itemsize <= budget and max(image.data.shape) <= 512:
-                level = i
-                break
-        image = self.images[level]
-        stride = 1
-        while (np.prod([(size+stride-1)//stride for size in image.data.shape])*image.data.dtype.itemsize > budget
-               or max(image.data.shape)/stride > 512):
-            stride *= 2
+            selection=self.region_slices(crop,i)
+            shape=tuple(s.stop-s.start for s in selection)
+            size=math.prod(shape)*image.data.dtype.itemsize
+            spacing,_=self.geometry(image)
+            options.append(dict(level=i,shape=shape,bytes=size,spacing=tuple(map(float,spacing)),fits=size<=budget))
+        return options
+
+    def preview(self, budget_mib=DEFAULT_PREVIEW_MIB, cancel=None, crop=None, level='auto'):
+        crop=self.crop_bounds(crop)
+        options=self.level_options(budget_mib,crop)
+        requested=level
+        if level == 'auto':
+            level=next((item['level'] for item in options if item['fits']),len(options)-1)
+        elif type(level) is not int or not 0 <= level < len(options):
+            raise ValueError('Choose an available OME-Zarr level.')
+        elif not options[level]['fits']:
+            raise ValueError('This level exceeds the voxel array size limit for the crop.')
+        image=self.images[level]
+        selected=self.region_slices(crop,level)
+        stride=1
+        while math.prod((s.stop-s.start+stride-1)//stride for s in selected)*image.data.dtype.itemsize > float(budget_mib)*1024**2:
+            stride*=2
+        selection=tuple(slice(s.start,s.stop,stride) for s in selected)
         class CheckCancel(Callback):
             def _pretask(self,key,graph,state):
                 if cancel is not None and cancel.is_set():
                     raise ImportCancelled('Load cancelled.')
         with CheckCancel():
-            values = image.data[::stride,::stride,::stride].compute(scheduler='single-threaded')
+            values = image.data[selection].compute(scheduler='single-threaded')
         values = np.ascontiguousarray(values, dtype=values.dtype.newbyteorder('='))
         finite = values.ravel()[::max(1,values.size//1_000_000)]
         finite = finite[np.isfinite(finite)]
@@ -268,7 +315,8 @@ class VolumeSource:
         if high <= low:
             high = low+1
         scale,origin = self.geometry(image)
-        return Volume(values,scale*stride,origin,(low,high),self.path,self,level,stride)
+        origin=origin+np.asarray([s.start for s in selection][::-1])*scale
+        return Volume(values,scale*stride,origin,(low,high),self.path,self,level,stride,crop,selection,requested)
 
 
 def import_tiff(path, destination, voxel_size_um=None, cancel=None, progress=None):

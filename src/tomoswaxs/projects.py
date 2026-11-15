@@ -36,6 +36,16 @@ def validate_view(view):
             raise ValueError(f'Saved {key} is outside the supported range.')
     if 'contrast_low' in view and 'contrast_high' in view and view['contrast_low'] >= view['contrast_high']:
         raise ValueError('Invalid saved contrast range.')
+    volume=view.get('volume')
+    if volume is not None:
+        if not isinstance(volume,dict) or set(volume)!={'crop','level'}:
+            raise ValueError('Invalid saved volume selection.')
+        crop=volume['crop'];level=volume['level']
+        if (not isinstance(crop,list) or len(crop)!=3 or any(not isinstance(pair,list) or len(pair)!=2 or
+                any(type(v) is not int for v in pair) or not 0<=pair[0]<pair[1] for pair in crop)):
+            raise ValueError('Invalid saved volume crop.')
+        if level!='auto' and (type(level) is not int or level<0):
+            raise ValueError('Invalid saved volume level.')
     camera = view.get('camera')
     if camera is not None:
         if not isinstance(camera,dict):
@@ -54,6 +64,33 @@ def validate_view(view):
                 raise ValueError(f'Invalid camera {key}.')
         if camera['view_angle']>=180 or type(camera.get('parallel_projection')) is not bool:
             raise ValueError('Invalid camera projection.')
+
+
+SAVED_VIEW_FIELDS = ('beam_x','beam_y','angle','camera')
+
+
+def validate_saved_views(views):
+    if not isinstance(views,list):
+        raise ValueError('Invalid saved-view list.')
+    ids,names=set(),set()
+    for item in views:
+        if not isinstance(item,dict):
+            raise ValueError('Invalid saved view.')
+        identifier=item.get('id')
+        if not isinstance(identifier,str) or not re.fullmatch(r'[A-Za-z0-9_-]+',identifier) or identifier in ids:
+            raise ValueError('Invalid or duplicate saved-view ID.')
+        ids.add(identifier)
+        name=item.get('name')
+        if not isinstance(name,str) or not name.strip():
+            raise ValueError('Enter a name for the saved view.')
+        key=name.strip().casefold()
+        if key in names:
+            raise ValueError('A saved view already has that name.')
+        names.add(key)
+        view=item.get('view')
+        if not isinstance(view,dict) or set(view)!=set(SAVED_VIEW_FIELDS):
+            raise ValueError('A saved view must contain X/Y position, angle and camera.')
+        validate_view(view)
 
 
 class Project:
@@ -95,6 +132,7 @@ class Project:
             if sample.get('settings',{}).get('rotation_axis','y') not in ('x','y','z'):
                 raise ValueError('Invalid sample axis assignment.')
             validate_view(sample.get('view',{}))
+            validate_saved_views(sample.get('saved_views',[]))
         if document.get('active_sample_id') is not None and document['active_sample_id'] not in ids:
             raise ValueError('Active sample is missing from the project.')
 
@@ -171,10 +209,12 @@ class Project:
             directory.mkdir(parents=True,exist_ok=True)
         return directory
 
-    def add_sample(self,path,name,axis='y',view=None,identifier=None):
+    def add_sample(self,path,name,axis='y',view=None,identifier=None,saved_views=None):
         identifier=identifier or uuid.uuid4().hex
         ct={'kind':'synthetic'} if path is None else {'format':'ome-zarr','path':self.reference(path)}
         sample=dict(id=identifier,name=name.strip(),datasets=dict(ct=ct,scattering={'kind':'synthetic'}),
                     settings={'rotation_axis':axis},view=view or {})
+        if saved_views:
+            sample['saved_views']=deepcopy(saved_views)
         self.change(samples=[*self.document['samples'],sample],active_sample_id=identifier)
         return identifier

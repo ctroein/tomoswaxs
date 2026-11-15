@@ -1,6 +1,6 @@
-# NIM µCT-SAXS user guide
+# TomoSWAXS user guide
 
-NIM µCT-SAXS displays a sample volume together with a SAXS intensity curve and
+TomoSWAXS displays a sample volume together with a SAXS intensity curve and
 an intensity map against scattering coordinate q and azimuth φ. The current
 demo can use a synthetic specimen or a loaded CT volume. The scattering data
 are illustrative.
@@ -10,7 +10,7 @@ are illustrative.
 With the project virtualenv active, run from the repository directory:
 
 ```bash
-uv run --active --locked nim-ct-saxs --server --port 8080 --timeout 0
+uv run --active --locked tomoswaxs --server --port 8080 --timeout 0
 ```
 
 Open http://127.0.0.1:8080/ in a browser. Stop the server with Ctrl+C in its terminal.
@@ -60,8 +60,12 @@ dataset itself. Some future analysis tools will require an active project.
 A project can also be opened at startup:
 
 ```bash
-nim-ct-saxs --server --port 8080 --timeout 0 --project /path/to/project.json
+tomoswaxs --server --port 8080 --timeout 0 --project /path/to/project.json
 ```
+
+Project name edits in **Project settings** are saved when the dialog closes.
+An empty name keeps the dialog open for correction. Opening **Locate sample
+data** also saves the edited name before continuing to the file chooser.
 
 ## Open and import CT volumes
 
@@ -94,8 +98,8 @@ Press **Open** to import and show the volume. Progress is displayed, and
 cancelled operation keeps the previous scene. Existing destinations are
 preserved; choose the existing OME-Zarr image to reopen it.
 
-**Preview budget (MiB)** controls the size of the array sent to VTK (64 MiB by
-default). The viewer picks a suitable pyramid level; a stride preview is used
+**Voxel array size limit (MiB)** limits the voxel array loaded into RAM for
+volume rendering (64 MiB by default). The viewer picks a suitable pyramid level; a stride preview is used
 when the store has no sufficiently small level. The footer shows preview
 resolution and physical spacing. Overall process RAM also includes rendering,
 I/O buffers and application overhead.
@@ -103,7 +107,7 @@ I/O buffers and application overhead.
 To open an existing image:
 
 ```bash
-uv run --active --locked nim-ct-saxs --server --port 8080 --timeout 0 \
+uv run --active --locked tomoswaxs --server --port 8080 --timeout 0 \
   --volume /path/to/image.ome.zarr --preview-mib 64
 ```
 
@@ -132,7 +136,7 @@ preview. SAXS is fabricated and is labelled **SYNTHETIC SAXS**.
 ## Explore the sample
 
 Drag with the left mouse button to orbit the camera. Use the mouse wheel or
-right-button drag to zoom, and middle-button drag to pan. **Reset camera** restores
+right-button drag to zoom, and middle-button drag to pan. With the left button, hold Shift to pan, Ctrl to roll the view, or Shift+Ctrl to zoom. **Saved views → Default camera** restores
 the initial viewpoint. **Beam view** looks along the beam. Zoom-out stops at four
 times the fitted view extent to keep the sample visible.
 
@@ -167,7 +171,7 @@ restored with the sample. During standalone inspection it applies temporarily. E
 settings are read as initial values when adding a dataset; the dataset is kept
 unchanged.
 
-**Play** starts rotation; **Pause** holds the current angle. The adjustments
+The **Play/Pause** button starts rotation and switches to Pause; click it again to hold the current angle. The adjustments
 button beside these icons opens **Rotation settings**: choose updates per second
 and the angular step per update. The popup shows seconds per full turn. Defaults
 are 20 updates/s and 1.5°, giving a 12-second turn. These settings are saved in
@@ -176,6 +180,17 @@ playback, the volume and scattering panels follow the selected rotation poses.
 Camera orbiting changes the viewpoint; sample rotation changes the object's
 orientation relative to the beam.
 
+## Saved views
+
+Use **Saved views → Save current view…** to name the current X/Y position,
+sample angle and camera view, including zoom. Choose a name from the menu to
+pause playback and restore that pose and camera together. **Manage saved views…**
+provides Rename and Delete. **Default camera** restores the standard camera.
+
+Saved views belong to the current sample and persist in its project record.
+During standalone inspection they remain in memory for the application session;
+adding that sample to a project retains them.
+
 ## Beam size
 
 Expand **Beam size** at the left of the row below the coordinate sliders. It
@@ -183,6 +198,39 @@ contains **Radius (µm)** with **X** and **Y** prefixes in the two fields, for t
 horizontal and vertical semi-axes of the elliptical beam. In this demo these
 adjust the displayed beam geometry. The fabricated SAXS signal currently depends
 on beam position and sample angle, rather than beam radius.
+
+## Crop and resolution
+
+**Crop** and **Resolution** are movable tabs, initially grouped beside the volume.
+Open or close either through **Tabs**, drag them to another position, or use their
+pop-out icons to place the controls in a separate window.
+
+Crop has start/end spinboxes and a two-handle slider for each image axis. The
+numbers are full-resolution voxel indices. Start is included and end is excluded;
+`X 40–120` selects 80 voxels. These image axes precede the sample’s axis assignment
+and rotation. Changing resolution preserves the same physical region.
+
+Changes update the displayed region and load the needed OME-Zarr chunks in the
+background. New requests replace older ones. **Cancel loading** restores the
+previous loaded region. **Reset crop** selects the complete sample, and **Copy
+coordinates** copies Python-style `[z_start:z_end, y_start:y_end, x_start:x_end]`.
+Enable **3D handles** to resize the crop box directly in the volume viewer.
+
+Resolution offers **Auto** and the available OME-Zarr levels, with cropped
+array dimensions, array size and XYZ voxel size. Level 0 is full resolution.
+Auto chooses the finest level fitting **Voxel array size limit (MiB)**. Smaller
+crops can therefore use finer levels. Levels exceeding the limit are marked
+“too large”. If no stored level fits, Auto subsamples the coarsest level and
+reports the subsampling factor in **Loaded array**. The loaded-array readout
+shows what is currently being rendered while a new request is loading.
+
+The size limit covers the voxel array in RAM. Rendering, decompression and other
+application allocations also use memory. There is no additional 512-voxel axis
+limit. Set a suitable array limit for the machine running the application.
+
+Projects remember crop and level selection per sample. Standalone selections
+last while that sample remains open. Cropping changes the displayed CT region;
+the scattering demonstration continues to sample the full source dataset.
 
 ## Read the SAXS panels
 
@@ -198,7 +246,18 @@ plot to restore its axis ranges.
 Drag a panel tab to an edge to create a horizontal or vertical split. Drop it
 onto another tab strip to group the panels as tabs. Drag the dividers to resize.
 Shift-drag a tab to create an in-page floating panel; Shift-drag its tab back to a
-dock target to reattach it. **View** reopens any of the three panels.
+dock target to reattach it. **Tabs** shows a check beside each open panel. Select an entry to open or close that panel.
+
+The arrow icon beside a tab’s close button opens that panel in a separate browser
+window. Move the window to another monitor or desktop as needed. The arrow in
+that window returns the panel to the main window. Closing the browser window
+also returns its panels; the tab’s × closes the panel. Keep the main application
+window open while using detached panels.
+
+Detached panels follow appearance and text-size changes in Settings. If the
+browser blocks a new window, allow popups for the application’s address and try
+again. Remember panel layout restores detached panels into the main window when
+the application page is reloaded.
 **View → Restore default layout** restores the volume above the two SAXS views.
 
 **Settings** provides System, Light and Dark appearance; text size from 80–160%;

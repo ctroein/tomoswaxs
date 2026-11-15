@@ -2,7 +2,7 @@
 
 Run commands from the repository directory. `uv sync --active --locked` installs into the active
 project environment. Our local setup uses the shared pyenv `nim` environment. Application code and browser assets live under
-`src/nim_ct_saxs/`; `pyproject.toml` declares the installed `nim-ct-saxs` command.
+`src/tomoswaxs/`; `pyproject.toml` declares the installed `tomoswaxs` command.
 Python 3.12 is the initial tested and supported series.
 
 ## Running and testing
@@ -11,7 +11,7 @@ Use a second port when testing edits so an existing demo session remains
 available:
 
 ```bash
-uv run --active --locked nim-ct-saxs --server --port 8081 --timeout 0
+uv run --active --locked tomoswaxs --server --port 8081 --timeout 0
 uv run --active --locked python -m unittest discover -s tests
 ```
 
@@ -270,7 +270,7 @@ values and shapes with the scattering output.
 
 ## Icon sources
 
-The current icon inventory is in `src/nim_ct_saxs/assets/icons/README.md`.
+The current icon inventory is in `src/tomoswaxs/assets/icons/README.md`.
 Local SVGs use `currentColor` and are embedded by `ApplicationUI.svg_icon()`;
 CSS supplies the theme accent. The SVG files contain the colours they use, with
 no runtime colour replacement. Play, Pause and view help currently use Quasar’s
@@ -284,7 +284,7 @@ panel templates and the Dockview widget. Build these named templates outside the
 main layout context so Dockview can host them without duplicate root content.
 
 `assets/workspace.js` manages docking, panel recovery and default arrangements
-through the wrapper’s public component methods. The **View** menu reopens closed
+through the wrapper’s public component methods. The **Tabs** menu toggles open and closed
 panels and resets the arrangement. `preferences.js` saves complete Dockview JSON
 only when Remember panel layout is enabled. Old splitter percentages are used
 as initial proportions. The workspace and preferences scripts signal readiness
@@ -293,5 +293,96 @@ the browser, separate from project and sample state.
 
 The default renderer keeps hidden tabs mounted. Dockview observes panel sizes;
 VTK and Plotly observe their own containers. The installed wrapper supports
-Shift-drag floating groups within the page. Separate browser-window popouts need
-additional integration; there is currently no detach-to-window action.
+Shift-drag floating groups within the page. A `nim_tab` template supplies the
+per-panel pop-out/return and close buttons. Dockview passes its native panel and
+container APIs through Vue `$attrs.params`, so the custom tab can call
+`addPopoutGroup(panel)` without patching the Trame wrapper. Use the panel object,
+not its group, to detach only the requested tab. To return a panel, create a
+main-grid group with `containerApi.addGroup()` and pass it explicitly to
+`panelApi.moveTo({group, position:'center'})`. A position-only call to the panel
+API targets its own group; the group API has different defaults. Panel API
+facades share one underlying workspace, so bind lifecycle events only once.
+
+`assets/popout.html` is the same-origin host page; the live Vue components and
+Trame connection remain owned by the main window. `workspace.js` manages child
+window lifecycle, theme/text-size propagation, tab state and resize notifications.
+`beam.js` exposes document attachment with cleanup so Alt+Shift beam gestures
+share the existing update queue in either window. Window listeners and API
+subscriptions are disposed on close/unmount.
+
+`mainWindowLayout()` removes pop-out window records from persisted layouts and
+places detached panels back in the main grid. Restoration cannot replay saved
+window URLs or create popups. Existing docking and floating positions are kept.
+`tests/popouts.cjs` exercises lifecycle and failure handling; `browser_check.py`
+includes real child-window rendering, updates, beam gestures and return checks.
+
+## Saved pose and camera views
+
+`saved_views.py` manages named per-sample bookmarks. Each optional `saved_views`
+entry in a project sample has a stable ID, a unique name and a `view` containing
+`beam_x`, `beam_y`, `angle` and the existing camera representation. Validation
+reuses the camera/view checks in `projects.py`. Existing version-1 manifests
+without this optional field remain valid. Standalone bookmarks are held in
+memory by source path and carried into projects when the sample is added.
+
+The Saved views menu pauses playback. Capture accepts the latest client pose so
+an in-flight pose update does not save an older angle. Recall applies pose and
+camera under `_applying_pose`, changes the sample-context token to invalidate
+queued input, and renders once. Existing opacity, contrast and radii remain in
+effect. Project settings applies name edits on dismissal and before opening the
+relink chooser; it preserves the selected sample-to-locate.
+
+## Volume crop and resolution
+
+`volume_viewing.py` owns control state, crop-box interaction and a single
+background rendering-load worker. `VolumeSource` in `volumes.py` plans crops
+at each stored level before computing any array. Crop bounds are XYZ integer
+cell indices at full resolution, with exclusive ends. Physical level transforms
+(including translated downsampling centres) map these bounds to ZYX chunk reads.
+The VTK image receives the selected level’s spacing and the cropped origin.
+Cropping planes enforce the exact physical region at coarse levels.
+
+Explicit levels are loaded without additional subsampling and must fit the
+voxel-array size limit. Auto chooses the finest fitting level, falling back to
+power-of-two stride sampling of the coarsest level when necessary. Array size,
+not a hidden axis-length cap, controls this selection. The limit excludes total
+process and GPU allocation overhead.
+
+`workspace.py` defines named `nim_crop` and `nim_resolution` panel templates.
+`crop.js` keeps numeric/range drafts local and submits complete requests through
+the existing bounded queue. Server acknowledgements leave newer drafts intact;
+reload and sample changes restore drafts from canonical bounds. The rendering
+worker coalesces requests, cancels old chunk reads and checks generation/source/
+sample context before installing an array. Crop handles use the same controller
+on release; intermediate handle movement clips the loaded volume. Rendering
+changes preserve camera, pose, contrast and source-based scattering.
+
+Projects save `view.volume = {crop: [[x0,x1],[y0,y1],[z0,z1]], level: "auto" | int}`.
+Standalone viewing remains read-only. Layout snapshots carry `nimControlsVersion`
+so old three-panel arrangements gain the new controls once, while controls
+closed afterwards remain closed. Test coverage is in `test_volume_viewing.py`,
+`crop.cjs`, `workspace.cjs` and the installed-browser smoke check.
+
+## Source map and naming
+
+The Python distribution, command and import package are `tomoswaxs`; the displayed
+application name is TomoSWAXS. `project_info.py` holds the About identity and
+copyright attribution. The root `LICENSE` is included in built packages.
+
+Within `src/tomoswaxs/`, `app.py` coordinates state and rendering, `ui.py` builds
+controls and dialogs, and `workspace.py` defines dock panels. `projects.py`
+validates and saves project manifests; `project_workflow.py` manages sample and
+project operations. `saved_views.py` manages pose/camera bookmarks. `volumes.py`
+reads OME-Zarr and imports TIFF; `volume_viewing.py` manages crop and resolution
+loads. `orientation.py` defines coordinate transforms and `synthetic_demo.py`
+generates the illustrative specimen and scattering. Browser scripts, styles,
+icons and logos are in `assets/`.
+
+Python integration tests and JavaScript checks are in `tests/`.
+`tools/browser_check.py` exercises the installed GUI;
+`tools/try_dependency_updates.py` tests dependency updates and packaging.
+Root `app.py` is a launch wrapper; `preview_demo.py` creates a static preview.
+
+The saved-project format remains `nim-ct-saxs-project` for compatibility with
+existing files. Internal `nim` browser keys, asset routes and RPC names also
+remain stable; these are implementation identifiers, not the application name.

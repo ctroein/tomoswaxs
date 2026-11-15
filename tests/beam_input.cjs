@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const {createLatestUpdates} = require('../src/nim_ct_saxs/assets/updates.js');
+const {createLatestUpdates} = require('../src/tomoswaxs/assets/updates.js');
 
 function fixture() {
   const handlers = {}, calls = [], resolvers = [];
@@ -24,7 +24,7 @@ function fixture() {
   };
   context.window.nimUpdates=createLatestUpdates((kind,value)=>context.window.trame.trigger('nim_beam_position',value),
     {now:()=>1000,setTimer:()=>1,clearTimer(){}});
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/nim_ct_saxs/assets/beam.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/tomoswaxs/assets/beam.js'),'utf8'),context);
   function event(type, x, y, options={}) {
     const opts = {viewport:true, ...options};
     return {type, clientX:x, clientY:y, pointerId:1, button:0,
@@ -40,7 +40,7 @@ function fixture() {
     resolvers.shift()();
     await new Promise(setImmediate);
   }
-  return {handlers, calls, event, resolve};
+  return {handlers, calls, event, resolve,beam:context.window.nimBeam};
 }
 
 module.exports = async function checkBeamInput() {
@@ -58,6 +58,16 @@ module.exports = async function checkBeamInput() {
   await resolve();
   handlers.pointermove(event('pointermove',70,150));
   assert.equal(calls.length,2,'No stale events or hover RPCs after release');
+
+  const second=fixture(),otherHandlers={};
+  const otherDocument={addEventListener:(key,fn)=>{otherHandlers[key]=fn;},removeEventListener:key=>{delete otherHandlers[key];}};
+  const off=second.beam.attach(otherDocument);
+  assert.equal(second.beam.attach(otherDocument),off,'Bind a document only once');
+  otherHandlers.pointerdown(second.event('pointerdown',25,50,{altKey:true,shiftKey:true}));
+  otherHandlers.pointerup(second.event('pointerup',60,120));
+  await second.resolve();await second.resolve();
+  assert.equal(second.calls.length,2,'Beam gestures in the second document use the shared queue');
+  off();assert.equal(Object.keys(otherHandlers).length,0);
 
   const shortcut = fixture();
   for (const modifiers of [{}, {shiftKey:true}, {ctrlKey:true},
