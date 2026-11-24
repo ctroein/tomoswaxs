@@ -89,6 +89,7 @@
     const bar=plot.querySelector('.colorbar')?.getBoundingClientRect();
     if (!bar || !window.Plotly) return;
     const size=plot._fullLayout._size, font=Number(plot._fullLayout.font.size)||14;
+    if (size.h<=0 || plot.clientWidth<=0) return;
     const gap=Math.ceil(font*.6), legendHeight=legend?.height||0, legendWidth=legend?.width||0;
     // Stack the key above the scale where it fits. Very short panels or large
     // text use adjacent columns instead of overlapping the key and scale.
