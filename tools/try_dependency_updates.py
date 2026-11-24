@@ -115,7 +115,7 @@ def check_environment(python, source, artifacts, port):
     env = dict(os.environ)
     env.pop('PYTHONPATH', None)
     env.pop('VIRTUAL_ENV', None)
-    run([python, '-m', 'unittest', 'discover', '-s', source/'tests'], artifacts, log, env)
+    run([python, '-m', 'unittest', 'discover', '-s', source/'tests'], source, log, env)
     # Playwright supplies a Node executable even when no system Node is installed.
     import playwright
     node = shutil.which('node') or str(Path(playwright.__file__).parent/'driver'/'node')

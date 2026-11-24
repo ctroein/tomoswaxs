@@ -6,22 +6,38 @@ existing web interface, see the [user guide](user-guide.md).
 ## Install from source
 
 You need Git and [uv](https://docs.astral.sh/uv/getting-started/installation/).
-TomoSWAXS currently supports Python 3.12; uv can download that Python version
-when creating the environment.
+TomoSWAXS requires Python 3.12 or newer. It has been tested on Python 3.12.13
+and 3.13.15. The example below selects 3.13; you can use another compatible
+installed version. uv can download Python when creating the environment.
 
 ```bash
 git clone https://github.com/ctroein/tomoswaxs.git
 cd tomoswaxs
-uv venv --python 3.12
+uv venv --python 3.13
 source .venv/bin/activate
 uv sync --active --locked
 ```
 
-If you already have a Python 3.12 virtual environment, activate it and run
+If you already have a Python 3.12 or newer virtual environment, activate it and run
 `uv sync --active --locked` from the checkout. The lockfile supplies the tested
 dependency versions. The application requires graphics support for VTK rendering
 on the machine running it; verify rendering on the intended workstation or
 compute node.
+
+### Install with pip
+
+With Python 3.12 or newer available, installation from the checkout can also
+use pip:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+```
+
+Pip uses the dependency ranges in `pyproject.toml`, not the exact versions in
+`uv.lock`. With this environment active, run `tomoswaxs` directly instead of
+`uv run --active --locked tomoswaxs`.
 
 ## Start locally
 
@@ -83,7 +99,7 @@ To update a checkout, review and pull the desired Git revision, then run
 
 To build a wheel and source archive, run `uv build` in the checkout. A wheel can
 be installed with `uv pip install /path/to/tomoswaxs-VERSION-py3-none-any.whl`
-into an active Python 3.12 environment, then started with `tomoswaxs --server
+into an active Python 3.12 or newer environment, then started with `tomoswaxs --server
 --port 8080 --timeout 0`. Wheel dependencies follow the ranges in the package;
 for exact versions, distribute a requirements export alongside the matching wheel:
 

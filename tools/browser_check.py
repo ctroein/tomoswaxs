@@ -50,7 +50,7 @@ def check_popouts(page):
         child.wait_for_load_state()
         back=child.get_by_role('button',name=f'Return to main window: {title}',exact=True)
         expect(back).to_be_visible()
-        expect(page.get_by_role('tab')).to_have_count(5)
+        expect(page.get_by_role('tab')).to_have_count(4)
         child.set_viewport_size({'width':800,'height':600})
         child.wait_for_function("document.documentElement.dataset.theme === 'light'")
         if title == 'µCT volume':

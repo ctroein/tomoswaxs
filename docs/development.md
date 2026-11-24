@@ -48,7 +48,10 @@ See also the [NGFF 0.6 capability investigation](data/ngff-0.6.md).
 Run commands from the repository directory. `uv sync --active --locked` installs into the active
 project environment. Our local setup uses the shared pyenv `nim` environment. Application code and browser assets live under
 `src/tomoswaxs/`; `pyproject.toml` declares the installed `tomoswaxs` command.
-Python 3.12 is the initial tested and supported series.
+Python 3.12 or newer is permitted; verification has covered Python 3.12.13
+and 3.13.15. Do not exclude other versions without evidence of incompatibility.
+Local verification uses the shared `nim` environment; check its actual patch
+version when reporting results.
 
 ## Running and testing
 
@@ -718,3 +721,28 @@ Most application tests and `tools/brick_rendering.py` explicitly use `system`:
 this avoids benchmark overhead and preserves deliberate per-process GPU choices
 when comparing renderers. `tests/test_rendering.py` exercises ranking, cache
 invalidation, environment precedence and probe failures with mocked devices.
+
+## Early-development dependency updates
+
+Accept newer stable dependencies when the available checks show that they work.
+The lockfile records the current working environment; it is not a reason to
+retain old versions indefinitely. Widen dependency bounds as needed for tested
+updates. Keep Python compatibility broad unless a specific incompatibility is
+found. Verification should be proportionate to early research development.
+
+For the shared local `nim` environment, Carl installs or updates dependencies.
+Do not create isolated test environments or download replacement tools without
+explicit authorization. The dependency-trial tool described above creates
+isolated environments and therefore requires that authorization before use.
+
+Validation, 2026-11-24: Python 3.13.15 with the updated locked dependencies
+passed all 122 Python tests, all JavaScript checks and `uv pip check`. Hatchling
+built both the wheel and source archive. The browser check passed volume/plot
+rendering, camera controls/playback, beam dragging, crop/level changes, reload,
+and explicit pop-out return. Closing a popped-out cake window still leaves
+four main-window tabs instead of five, reproducing the previously documented
+pop-out lifecycle issue with the current combined Crop and resolution panel.
+The assertion remains in place. Other browser steps after that assertion were
+not reached. The test runner now launches Python tests from the source directory
+so tests can import repository tools; its detached-panel count is corrected to
+four main-window tabs while one of five panels is in a separate window.
