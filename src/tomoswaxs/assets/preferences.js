@@ -84,7 +84,7 @@
   const adjustingPlots = new WeakSet();
   function fitPlotDecorations(root) {
     const plot=root?.matches?.('.js-plotly-plot') ? root : root?.querySelector?.('.js-plotly-plot');
-    if (!plot?._fullLayout || plot.data?.[0]?.type!=='heatmap' || adjustingPlots.has(plot)) return;
+    if (!plot?.isConnected || !plot._fullLayout || plot.data?.[0]?.type!=='heatmap' || adjustingPlots.has(plot)) return;
     const legend=plot.querySelector('.legend')?.getBoundingClientRect();
     const bar=plot.querySelector('.colorbar')?.getBoundingClientRect();
     if (!bar || !window.Plotly) return;
@@ -92,7 +92,7 @@
     const gap=Math.ceil(font*.6), legendHeight=legend?.height||0, legendWidth=legend?.width||0;
     // Stack the key above the scale where it fits. Very short panels or large
     // text use adjacent columns instead of overlapping the key and scale.
-    const beside=legendHeight>0 && size.h<legendHeight+gap+4*font;
+    const beside=legendHeight>0 && size.h<legendHeight+gap+6*font;
     const right=Math.max(108,Math.ceil((beside ? bar.width+legendWidth+gap : Math.max(bar.width,legendWidth))+16));
     const width=Math.max(1,plot.clientWidth-size.l-right);
     const x=1.02+(beside ? (bar.width+gap)/width : 0);
