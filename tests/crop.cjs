@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 module.exports=async function checkCrop(){
-  const values={render_level:'auto',volume_preview_mib:64};
+  const values={render_level:'auto',volume_preview_mib:64,crop_units:'voxel',crop_origin_um:[-50,-100,-150],crop_spacing_um:[.5,1,2]};
   for(const axis of 'xyz'){values[`crop_max_${axis}`]=160;values[`crop_draft_${axis}`]={min:0,max:160};}
   const calls=[],copied=[];
   const listeners=[];
@@ -30,7 +30,18 @@ module.exports=async function checkCrop(){
   window.nimCrop.edit('x','min','50');
   listeners[0]({type:'dirty-state',keys:['crop_bounds']});
   assert.equal(values.crop_draft_x.min,50,'An acknowledgement cannot overwrite newer local edits');
+  values.crop_units='um';
+  assert.equal(window.nimCrop.display('x',20),-40);
+  window.nimCrop.editDisplay('x','min','-35');
+  assert.equal(values.crop_draft_x.min,30);
+  assert.equal(calls.at(-1)[1].crop[0][0],30);
+  values.crop_units='voxel';
   window.nimCrop.limit('1');assert.equal(calls.at(-1)[1].limit,1);
   window.nimCrop.limit('');assert.equal(calls.at(-1)[1].limit,1,'Incomplete limits do not request reads');
+  window.nimCrop.detail(true,true,35);
+  assert.equal(calls.at(-1)[0],'detail');
+  assert.equal(calls.at(-1)[1].enabled,true);
+  assert.equal(calls.at(-1)[1].depth,35,'Use the input event value before reactive model synchronization');
+  window.nimCrop.freeze();assert.equal(calls.at(-1)[1].freeze,true);
 };
 if(require.main===module)module.exports().catch(error=>{console.error(error);process.exitCode=1;});

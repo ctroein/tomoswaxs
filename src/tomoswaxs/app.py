@@ -1,59 +1,76 @@
-"""TomoSWAXS: CT volume visualization with illustrative SAXS data."""
+"""TomoSWAXS: CT volume visualization with measured SAXS data."""
 from pathlib import Path
 from dataclasses import replace
 import math
 import asyncio
+import logging
 import uuid
 import numpy as np
 import plotly.graph_objects as go
 import vtk
 from vtk.util.numpy_support import numpy_to_vtk
 from trame.app import get_server
-from .synthetic_demo import make_volume, scattering
-from .orientation import sample_rotation
 from .project_info import NAME
-from .volumes import VolumeSource, import_tiff, tiff_spacing, is_ome_zarr, directory_entries, import_pixel_size, replace_import_pixel_size, spacing_xyz
+from .volumes import VolumeSource, import_tiff, tiff_spacing, is_ome_zarr, directory_entries, import_pixel_size, replace_import_pixel_size, spacing_xyz, hdf5_volumes, hdf5_spacing, hdf5_axes
 from .projects import legacy_axis, VIEW_FIELDS
 from .project_workflow import ProjectWorkflow
 from .ui import ApplicationUI
 from .saved_views import SavedViews
 from .volume_viewing import VolumeViewing
+from .saxs_workflow import SaxsWorkflow
+from .camera import CameraControls
+from .rendering import create_render_window, device_option
 
 
-class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
-    def __init__(self, server=None, volume=None, data_directory=None, preview_mib=64):
+
+def colour_mapping_step(high, low=0.):
+    """Second significant place, halved for a leading 1."""
+    magnitude=abs(high) or abs(low)
+    if not math.isfinite(magnitude) or not magnitude:return 1.
+    decade=10.**max(-323,math.floor(math.log10(magnitude)))
+    return max(math.ulp(0.),decade/(20 if magnitude/decade<2 else 10))
+
+
+class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
+    def __init__(self, server=None, volume=None, data_directory=None, preview_mib=64, restore_project=True, render_device='auto'):
+        self.render_device=device_option(render_device)
         self.server = server or get_server(client_type='vue3')
         self.state = self.server.state
         self.state.trame__title = NAME
         self.server.enable_module(dict(serve={'nim-assets': str(Path(__file__).parent/'assets')},
-                                       styles=[f"/nim-assets/app.css?v={Path(__file__).parent.joinpath('assets/app.css').stat().st_mtime_ns}"], scripts=[f"/nim-assets/{name}?v={Path(__file__).parent.joinpath('assets',name).stat().st_mtime_ns}" for name in ('updates.js','beam.js','workspace.js','preferences.js','coordinates.js','crop.js')]))
-        self.volume, self.spacing, self.origin = make_volume()
-        self.signal_volume = self.volume
+                                       styles=[f"/nim-assets/app.css?v={Path(__file__).parent.joinpath('assets/app.css').stat().st_mtime_ns}"], scripts=[f"/nim-assets/{name}?v={Path(__file__).parent.joinpath('assets',name).stat().st_mtime_ns}" for name in ('updates.js','beam.js','workspace.js','preferences.js','coordinates.js','crop.js','saxs.js','projects.js')]))
+        self.volume, self.spacing, self.origin = np.zeros((2,2,2),dtype=np.uint16), .02, np.full(3,-.01)
         self.volume_source = None
         self.contrast = (0., 65535.)
         self.beam_limit_um = 1600
         self.beam_length = 4.5
         self.state.update(beam_x=250., beam_y=0., radius_x=60., radius_y=40.,
-                          angle=0., rotation_axis='y', sample_settings_notice='',
+                          angle=0., beam_visible=True, rotation_axis='y', sample_settings_notice='',
                           sample_pixel_size_editable=False,sample_voxel_x=1.,sample_voxel_y=1.,sample_voxel_z=1.,sample_voxel_linked=True, opacity=.55, workspace_ready=False, workspace_tabs=[], workspace_detached=[], workspace_busy=[], workspace_error='',
-                          status='Ready', log_iq=False, show_about=False, show_sample_settings=False, ui_theme='dark', ui_text_scale=100,
+                          status='Ready', log_iq=False, show_about=False, show_sample_settings=False, ui_theme='dark', ui_text_scale=100,ui_plot_scale=100,
                           draft_x=250., draft_y=0., draft_angle=0., rotation_playing=False, rotation_fps=20,rotation_step=1.5,rotation_settings_open=False,
-                          beam_limit_um=1600, contrast_low=0., contrast_high=65535., contrast_step=100.,
-                          data_notice='SYNTHETIC DEMO · fabricated specimen and scattering',
-                          volume_summary='Synthetic specimen', show_volume_picker=False,
+                          beam_limit_um=1600, contrast_low=0., contrast_high=65535., contrast_step=colour_mapping_step(65535.),
+                          data_notice='',
+                          volume_summary='No sample open', show_volume_picker=False,
                           volume_directory=str(data_directory or (volume.path.parent if volume else Path.cwd())),
                           volume_entries=[], volume_selection='', volume_voxel_x=1., volume_voxel_y=1., volume_voxel_z=1.,
                           volume_voxel_linked=True,
                           volume_destination='', volume_prepared_path='', volume_preview_mib=preview_mib, volume_progress='',
-                          volume_error='', volume_loading=False)
+                          volume_error='', volume_loading=False,volume_name_filter='*',volume_hdf5_datasets=[],volume_hdf5_dataset='',volume_hdf5_axes='zyx')
         self.init_projects()
+        self._restore_project_pending=bool(restore_project and volume is None)
+        self.state.restore_project_allowed=self._restore_project_pending
+        self.init_saxs()
         self.init_saved_views()
+        self.init_camera_controls()
         self.init_volume_viewing()
         if volume is not None:
             self.set_volume_data(volume)
+            self.state.update(has_sample=True,has_volume=True)
         self.sync_project()
+        self.configure_volume_filter()
         self.list_volume_directory()
-        self.state.client_only('workspace_ready','workspace_tabs','workspace_detached','workspace_busy','workspace_error','show_about','show_sample_settings','show_project','project_menu_open','ui_theme','ui_text_scale','draft_x','draft_y','draft_angle','rotation_playing','rotation_fps','rotation_step','rotation_settings_open')
+        self.state.client_only('workspace_ready','workspace_tabs','workspace_detached','workspace_busy','workspace_error','show_about','show_sample_settings','show_project','project_menu_open','ui_theme','ui_text_scale','ui_plot_scale','draft_x','draft_y','draft_angle','rotation_playing','rotation_fps','rotation_step','rotation_settings_open')
         self.dragging_beam = False
         self.dragging_controls = False
         self._applying_pose = False
@@ -65,19 +82,22 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         self.state.change('beam_x', 'beam_y', 'radius_x', 'radius_y', 'angle', 'opacity')(self.update_scene)
         self.state.change('log_iq')(self.update_plots)
         self.state.change('contrast_low', 'contrast_high')(self.update_scene)
+        self.state.change('beam_visible')(self.beam_visibility_changed)
         self.state.change('volume_selection')(self.volume_selection_changed)
+        self.state.change('volume_name_filter')(self.filter_volume_directory)
         self.state.change('rotation_axis')(self.rotation_axis_changed)
         self.state.change('sample_choice')(self.select_project_sample)
         self.state.change('volume_import_mode')(self.set_import_destination)
         self.server.controller.on_server_ready.add(self.view.update)
+        self.server.controller.on_server_ready.add(self.restore_saxs)
         self.server.controller.on_server_exited.add(self.persist_active)
         self.update_scene()
+        self.update_plots()
 
     def set_volume_data(self, volume, rotation_axis=None):
         self.loaded_volume = volume
         self.volume, self.spacing, self.origin = volume.values, volume.spacing, volume.origin
         self.volume_source, self.contrast = volume.source, volume.contrast
-        self.signal_volume = volume.source
         pixel_size = import_pixel_size(volume.path)
         self.state.update(sample_pixel_size_editable=pixel_size is not None,
                           **dict(zip((f'sample_voxel_{axis}' for axis in 'xyz'),map(float,volume.source.spacing*1000))),
@@ -94,8 +114,8 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         self.state.update(beam_limit_um=self.beam_limit_um, beam_x=float(centre[0]*1000), beam_y=float(centre[1]*1000), angle=0.,
                           rotation_axis=legacy_axis(volume.path) if rotation_axis is None else rotation_axis, sample_settings_notice='',
                           contrast_low=self.contrast[0], contrast_high=self.contrast[1],
-                          contrast_step=10.**math.floor(math.log10((self.contrast[1]-self.contrast[0])/100)),
-                          data_notice='CT volume · SYNTHETIC SAXS',
+                          contrast_step=colour_mapping_step(self.contrast[1],self.contrast[0]),
+                          data_notice='CT volume · no SAXS data',
                           volume_summary=f'{volume.path.name} · {dimensions} voxels · XYZ spacing {source_spacing} µm · preview {preview} at {spacing} µm')
         self.sync_volume_controls(volume)
 
@@ -126,7 +146,6 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
                             value = float(np.clip(value,-self.beam_limit_um,self.beam_limit_um))
                         self.state[key] = value
                 self.set_image_data()
-                self.last_signal_key = None
                 self.reset_camera()
             finally:
                 self._applying_pose = False
@@ -160,23 +179,30 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
             self.state.sample_settings_notice = 'Choose image axis X, Y or Z.'
             return
         self.state.sample_settings_notice = ''
-        self.last_signal_key = None
         self.update_scene()
 
     def volume_selection_changed(self, **_):
-        if self.state.picker_mode=='project_directory':
+        if self.state.picker_mode in ('project_directory','saxs','project'):
             return
         self.state.update(volume_voxel_x=1.,volume_voxel_y=1.,volume_voxel_z=1.,volume_voxel_linked=True,
                           volume_destination='',volume_prepared_path='')
         self._import_sample_id = uuid.uuid4().hex
         self.state.volume_import_mode = 'project' if self.project else 'external'
         path = Path(self.state.volume_selection)
-        if path.suffix.lower() in ('.tif','.tiff') and path.is_file():
+        self.state.update(volume_hdf5_datasets=[],volume_hdf5_dataset='',volume_hdf5_axes='zyx')
+        if path.suffix.lower() in ('.tif','.tiff','.h5','.hdf5') and path.is_file():
             self.state.volume_destination = str(path.with_suffix('.ome.zarr'))
             try:
-                spacing = tiff_spacing(path)
+                if path.suffix.lower() in ('.h5','.hdf5'):
+                    self.state.volume_hdf5_axes=hdf5_axes(path)
+                    choices=hdf5_volumes(path)
+                    self.state.volume_hdf5_datasets=choices
+                    self.state.volume_hdf5_dataset=choices[0]['value'] if len(choices)==1 else ''
+                    spacing=hdf5_spacing(path)
+                else:
+                    spacing = tiff_spacing(path)
                 if spacing is not None:
-                    self.state.update(**dict(zip(('volume_voxel_x','volume_voxel_y','volume_voxel_z'),map(float,spacing))))
+                    self.state.update(**dict(zip(('volume_voxel_x','volume_voxel_y','volume_voxel_z'),(float(f'{value:.12g}') for value in spacing))))
 
             except (OSError,ValueError) as error:
                 self.state.volume_error = str(error)
@@ -194,19 +220,43 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
             self.state.show_volume_picker = False
 
     def list_volume_directory(self):
-        try:
-            directory, entries = directory_entries(self.state.volume_directory,projects=self.state.picker_mode == 'project',
-                                                   directories_only=self.state.picker_mode == 'project_directory')
-            self.state.update(volume_directory=str(directory), volume_entries=entries,
-                              volume_selection='', volume_error='')
-        except (OSError, ValueError) as error:
-            self.state.volume_error = str(error)
+        self._list_volume_directory(self.state.volume_directory)
 
-    def parent_volume_directory(self):
-        self.state.volume_directory = str(Path(self.state.volume_directory).expanduser().parent)
+    def configure_volume_filter(self):
+        if self.state.picker_mode=='project':
+            options=[dict(value='project.json',label='Projects (project.json)')]
+        elif self.state.picker_mode=='saxs':
+            options=[dict(value='*_eiger_integrated.h5',label='Integrated SAXS (*_eiger_integrated.h5)')]
+        else:
+            options=[dict(value='*.tif; *.tiff; *.h5; *.hdf5',label='CT images (*.tif, *.tiff, *.h5, *.hdf5; OME-Zarr folders)'),
+                     dict(value='*.tif; *.tiff',label='TIFF (*.tif, *.tiff)'),
+                     dict(value='*.h5; *.hdf5',label='HDF5 (*.h5, *.hdf5)')]
+        options += [dict(value='*',label='All files (*)'),dict(value='custom',label='Custom pattern…')]
+        self.state.update(volume_filter_options=options,volume_filter_choice=options[0]['value'],volume_name_filter=options[0]['value'])
+
+    def choose_volume_filter(self,value):
+        self.state.volume_filter_choice=value
+        if value!='custom':
+            self.state.volume_name_filter=value
+
+    def filter_volume_directory(self,**_):
         self.list_volume_directory()
 
-    def open_selected_volume(self, path=None):
+    def _list_volume_directory(self, requested):
+        try:
+            directory, entries = directory_entries(requested,projects=self.state.picker_mode == 'project',
+                                                   directories_only=self.state.picker_mode == 'project_directory',scattering=self.state.picker_mode == 'saxs',
+                                                   all_files=True,name_filter=self.state.volume_name_filter or '*')
+            self.state.update(volume_directory=str(directory), volume_entries=entries,
+                              volume_selection='', volume_error='')
+        except Exception as error:
+            logging.getLogger(__name__).exception('Could not list directory %s', requested)
+            self.state.volume_error = f'Cannot open directory "{requested}": {type(error).__name__}: {error}'
+
+    def parent_volume_directory(self):
+        self._list_volume_directory(Path(self.state.volume_directory).expanduser().parent)
+
+    def open_selected_volume(self, path=None, navigate=False):
         if self.state.volume_loading:
             return
         if path is not None:
@@ -214,10 +264,16 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
             self.state.flush()
         task = getattr(self, "_volume_task", None)
         if task is None or task.done():
-            self._volume_task = asyncio.create_task(self._load_selected_volume())
+            self._volume_task = asyncio.create_task(self._load_selected_volume(navigate=navigate))
 
-    async def _load_selected_volume(self):
-        await self.load_volume_selection()
+    async def _load_selected_volume(self, navigate=False):
+        try:
+            await self.load_volume_selection(navigate=navigate)
+        except Exception as error:
+            logging.getLogger(__name__).exception('Could not open selection %s', self.state.volume_selection)
+            self.state.volume_error = f'Cannot open "{self.state.volume_selection}": {type(error).__name__}: {error}'
+        finally:
+            self.state.flush()
 
     def set_image_data(self):
         image = vtk.vtkImageData()
@@ -226,7 +282,7 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         image.SetOrigin(*self.origin)
         image.GetPointData().SetScalars(numpy_to_vtk(self.volume.ravel(), deep=False))
         self.mapper.SetInputData(image)
-        source=self.volume_source if self.volume_source is not None else self._synthetic_source
+        source=self.volume_source if self.volume_source is not None else self._empty_source
         self.sample.GetProperty().SetScalarOpacityUnitDistance(float(np.min(source.spacing)))
 
     def build_scene(self):
@@ -285,7 +341,7 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         axes.SetPosition(-1.3,-1.,-1.3)
         axes.VisibilityOff()
         self.renderer.AddActor(axes)
-        self.window = vtk.vtkRenderWindow()
+        self.window, self.render_selection = create_render_window(self.render_device)
         self.window.SetOffScreenRendering(1)
         self.window.SetAlphaBitPlanes(1)
         self.window.SetMultiSamples(0)
@@ -299,7 +355,8 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         self.build_crop_widget()
         self.reset_camera()
         self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.limit_zoom)
-        self.renderer.AddObserver(vtk.vtkCommand.EndEvent,lambda *_: self.schedule_project_save())
+        self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.detail_render_start)
+        self.renderer.AddObserver(vtk.vtkCommand.EndEvent,self.camera_rendered)
 
     def set_axes_visibility(self, visible):
         visible = visible is True
@@ -319,21 +376,31 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         self.beam_geometry.GetPointData().SetScalars(scalars)
 
     def scene_bounds(self):
-        sample = self.sample.GetBounds()
+        sample = self.visible_crop_bounds() if self.state.detail_enabled else self.sample.GetBounds()
         beam = self.beam.GetBounds()
         return tuple(min(sample[i],beam[i]) if i%2 == 0 else max(sample[i],beam[i])
                      for i in range(6))
 
     def reset_camera(self, beam_view=False):
         cam = self.renderer.GetActiveCamera()
+        cam.SetParallelProjection(bool(beam_view))
         cam.SetPosition(*( (0,0,8) if beam_view else (-4,-6,3) ))
         cam.SetFocalPoint(0,0,0)
         cam.SetViewUp(0,1,0)
-        self.renderer.ResetCamera(self.sample.GetBounds())
+        bounds=np.asarray(self.visible_crop_bounds()).reshape(3,2)
+        if beam_view:
+            # Centre the current beam and retain the whole crop. Parallel
+            # projection keeps translated measurement rays end-on too.
+            centre=np.array([float(self.state.beam_x)/1000,float(self.state.beam_y)/1000,bounds[2].mean()])
+            half_extent=np.max(np.abs(bounds-centre[:,None]),axis=1)
+            bounds=np.column_stack([centre-half_extent,centre+half_extent])
+        self.renderer.ResetCamera(bounds.ravel())
+        self._camera_crop_key=tuple(self.visible_crop_centre())
         cam.Zoom(1.05)
         self.zoom_out_limit = 4*self.camera_view_span()
         self._zoom_camera = (cam.GetViewAngle(),cam.GetDistance())
         self.renderer.ResetCameraClippingRange(self.scene_bounds())
+        self.sync_camera_angle()
         if hasattr(self,'view'):
             self.view.update()
 
@@ -365,7 +432,7 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
     def parameters(self):
         specs = {'beam_x':(-self.beam_limit_um,self.beam_limit_um), 'beam_y':(-self.beam_limit_um,self.beam_limit_um),
                  'radius_x':(10,500), 'radius_y':(10,500),
-                 'angle':(-180,180), 'opacity':(.05,1.)}
+                 'angle':(-180,180), 'opacity':(0.,1.)}
         result = {}
         for name,(lo,hi) in specs.items():
             try:
@@ -377,8 +444,15 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
             result[name] = value/1000 if name in ("beam_x", "beam_y", "radius_x", "radius_y") else value
         return result
 
+    def beam_visibility_changed(self, **_):
+        if hasattr(self,'beam'):
+            self.beam.SetVisibility(bool(self.state.has_sample and self.state.saxs_available and self.state.beam_visible))
+            self.view.update()
+
     def update_scene(self, **_):
-        if self._applying_pose or self.state.volume_loading:
+        self.sample.SetVisibility(bool(self.state.has_sample and self.state.has_volume))
+        self.beam.SetVisibility(bool(self.state.has_sample and self.state.saxs_available and self.state.beam_visible))
+        if self._applying_pose or self.state.volume_loading or not self.state.has_sample:
             return
         p = self.parameters()
         if p is None:
@@ -386,11 +460,12 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
             return
         self.state.status = 'Ready'
         matrix = vtk.vtkMatrix4x4()
-        rotation = sample_rotation(self.state.rotation_axis,p['angle'])
-        for row in range(3):
-            for column in range(3):
-                matrix.SetElement(row,column,float(rotation[row,column]))
+        transform = self.sample_pose_matrix(p['angle'])
+        for row in range(4):
+            for column in range(4):
+                matrix.SetElement(row,column,float(transform[row,column]))
         self.sample.SetUserMatrix(matrix)
+        if not self.state.detail_enabled:self.focus_visible_crop()
         self.beam.SetPosition(p['beam_x'],p['beam_y'],0)
         self.beam.SetScale(p['radius_x'],p['radius_y'],self.beam_length/4.5)
         self.update_beam_colors()
@@ -402,6 +477,7 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         except (TypeError, ValueError):
             self.state.status = 'Contrast maximum must exceed minimum; both must be finite numbers.'
             return
+        self.state.contrast_step=colour_mapping_step(high,low)
         self.transfer.RemoveAllPoints()
         scalar = lambda value: low+(high-low)*value/65535
         self.colors.RemoveAllPoints()
@@ -412,16 +488,8 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         self.renderer.ResetCameraClippingRange(self.scene_bounds())
         self.view.update()
         self.schedule_project_save()
-        # Radius and opacity do not affect scattering: avoid resending both plots.
-        key = (p['beam_x'],p['beam_y'],p['angle'])
-        if not self.dragging_beam and not self.dragging_controls and key != getattr(self,'last_signal_key',None):
-            self.last_signal_key = key
-            source = self.volume_source
-            self.signal = scattering(self.signal_volume, source.spacing if source else self._synthetic_source.spacing,
-                                     source.origin if source else self._synthetic_source.origin,*key,
-                                     intensity_range=self.contrast if source else None,
-                                     rotation_axis=self.state.rotation_axis)
-            self.update_plots()
+        if self._saxs_config is not None and not self.dragging_beam and not self.dragging_controls:
+            self.saxs_from_pose()
 
     def update_plots(self, **_):
         if not hasattr(self,'signal'):
@@ -430,20 +498,52 @@ class Demo(VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
         if not hasattr(self,'curve_figure'):
             common = dict(template='plotly_dark', paper_bgcolor='#101722',
                           plot_bgcolor='#101722', margin=dict(l=58,r=20,t=20,b=48),
-                          font=dict(family='sans-serif',size=12), autosize=True,
+                          font=dict(family='sans-serif',size=14), autosize=True,
                           uirevision='preserve-user-zoom')
             self.curve_figure = go.Figure(go.Scatter(mode='lines',line=dict(color='#67deeb',width=2)))
-            self.curve_figure.update_layout(**common,xaxis_title='q (invented nm⁻¹)',yaxis_title='Mean I(q) (a.u.)')
-            self.cake_figure = go.Figure(go.Heatmap(colorscale='Magma',zmin=-1.6,zmax=1.3,
-                colorbar=dict(title='log₁₀ I',thickness=12),
-                hovertemplate='q=%{x:.3f}<br>φ=%{y:.0f}°<br>log₁₀ I=%{z:.2f}<extra></extra>'))
-            self.cake_figure.update_layout(**common,xaxis_title='q (invented nm⁻¹)',yaxis_title='φ (degrees)')
+            self.curve_figure.update_layout(**common,xaxis_title='q',yaxis_title='I(q)')
+            self.cake_figure = go.Figure(go.Heatmap(colorscale='Magma',
+                colorbar=dict(title='log₁₀ I<br>(stored)',thickness=12),
+                hoverongaps=False,connectgaps=False,zsmooth=False,
+                hovertemplate='q=%{x:.3f}<br>φ=%{y:.0f}°<br>I=%{customdata:.5g}<br>log₁₀ I=%{z:.2f}<extra></extra>'))
+            # Categorical overlays keep missing coverage and measured zero
+            # distinct even though neither has a finite logarithm.
+            for label,color in [('No data','#84909f'),('Zero intensity','#46c9ca'),
+                                ('Negative intensity','#5494ef')]:
+                self.cake_figure.add_trace(go.Heatmap(name=label,
+                    colorscale=[[0,color],[1,color]],zmin=0,zmax=1,
+                    showscale=False,showlegend=False,hoverongaps=False,
+                    connectgaps=False,zsmooth=False,
+                    hovertemplate='q=%{x:.3f}<br>φ=%{y:.0f}°<br>'+label+'<extra></extra>'))
+            self.cake_figure.update_layout(**common,xaxis_title='q',yaxis_title='φ (degrees)')
+            self.cake_figure.update_layout(margin_t=42,
+                legend=dict(orientation='h',x=0,y=1.02,yanchor='bottom',font_size=14))
         # Keep dense arrays as NumPy arrays: Plotly encodes them as typed binary
         # buffers instead of recursively validating/serializing Python lists.
         curve = self.curve_figure.data[0]
         curve.x,curve.y = q,iq
         heat = self.cake_figure.data[0]
-        heat.x,heat.y,heat.z = q,phi,np.log10(cake)
+        log_cake=np.full(cake.shape,np.nan,dtype=float)
+        np.log10(cake,out=log_cake,where=np.isfinite(cake) & (cake>0))
+        heat.x,heat.y,heat.z = q,phi,log_cake
+        heat.customdata=cake
+        measured=self.signal_kind=='measured'
+        classes=(~np.isfinite(cake),np.isfinite(cake) & (cake==0),
+                 np.isfinite(cake) & (cake<0))
+        for trace,mask in zip(self.cake_figure.data[1:],classes):
+            trace.x,trace.y=q,phi
+            trace.z=np.where(mask,1.,np.nan).astype(np.float32)
+            trace.showlegend=measured and (trace.name!='Negative intensity' or bool(mask.any()))
+        q_unit=(self.saxs_scans[self.state.saxs_scan].q_unit if self.saxs_scans else 'unknown units') if measured else ''
+        self.curve_figure.layout.xaxis.title.text=f'q ({q_unit})' if q_unit else 'q'
+        self.cake_figure.layout.xaxis.title.text=f'q ({q_unit})' if q_unit else 'q'
+        self.curve_figure.layout.yaxis.title.text='I(q) (stored units)' if measured else 'I(q)'
+        heat.zauto=True
+        heat.zmin=None
+        heat.zmax=None
+        annotations=[] if measured else [dict(text='No SAXS data loaded',xref='paper',yref='paper',x=.5,y=.5,showarrow=False)]
+        self.curve_figure.layout.annotations=annotations
+        self.cake_figure.layout.annotations=annotations
         self.curve_figure.layout.yaxis.type = 'log' if self.state.log_iq else 'linear'
         self.curve.update(self.curve_figure)
         self.cake.update(self.cake_figure)
@@ -526,11 +626,13 @@ def main():
     parser.add_argument('--voxel-size-um',type=float,nargs='+',help='Explicit TIFF voxel spacing: one value or X Y Z, in µm')
     parser.add_argument('--preview-mib',type=float,default=64,help='Maximum loaded voxel array size in MiB (default: 64)')
     parser.add_argument('--data-dir',type=Path,help='Initial directory for the GUI file selector')
+    parser.add_argument('--render-device',default='auto',help='Graphics selection: auto (default), system, or egl:N')
     args, remaining = parser.parse_known_args()
     if '-h' in remaining or '--help' in remaining:
         parser.print_help()
     sys.argv[1:] = remaining
     try:
+        device_option(args.render_device)
         if not math.isfinite(args.preview_mib) or args.preview_mib < 1:
             raise ValueError('Voxel array size limit must be at least 1 MiB.')
         if args.import_only and not args.import_tiff:
@@ -550,7 +652,10 @@ def main():
         volume = VolumeSource(path).preview(args.preview_mib) if path else None
     except (OSError, ValueError) as error:
         parser.error(str(error))
-    app = Demo(volume=volume,data_directory=args.data_dir,preview_mib=args.preview_mib)
+    app = Demo(volume=volume,data_directory=args.data_dir,preview_mib=args.preview_mib,
+               restore_project=not (args.project or path),render_device=args.render_device)
+    from .rendering import renderer_name
+    print(f'Graphics: {renderer_name(app.window)} ({app.window.GetClassName()}, {app.render_selection["device"]})',flush=True)
     if args.project:
         asyncio.run(app.open_project_path(args.project))
         if app.project is None:

@@ -14,7 +14,7 @@ from trame.app import get_server
 
 from tomoswaxs.volumes import (VolumeSource, TiffBlocks, import_tiff, ImportCancelled,
                                 directory_entries, tiff_spacing, import_pixel_size, replace_import_pixel_size)
-from tomoswaxs.app import Demo
+from sample_fixture import Demo
 
 
 class VolumeChecks(unittest.TestCase):
@@ -107,7 +107,7 @@ class VolumeChecks(unittest.TestCase):
             destination=Path(folder)/'image.zarr'
             cancel=threading.Event()
             def progress(text):
-                if 'tasks in current level' in text:
+                if text.startswith('Writing resolution level 2 of'):
                     cancel.set()
             with self.assertRaises(ImportCancelled):
                 import_tiff(path,destination,10,cancel,progress)
@@ -146,8 +146,8 @@ class VolumeChecks(unittest.TestCase):
             self.assertGreater(app.state.beam_limit_um,1600)
             app.receive_pose({'beam_x':2500},True)
             self.assertEqual(app.state.beam_x,2500)
-            self.assertIsInstance(app.signal_volume,VolumeSource)
-            self.assertIn('SYNTHETIC SAXS',app.state.data_notice)
+            self.assertIsInstance(app.volume_source,VolumeSource)
+            self.assertIn('no SAXS data',app.state.data_notice)
             with app.state:
                 app.state.volume_selection=str(Path(folder)/'missing.zarr')
             asyncio.run(app._load_selected_volume())
@@ -231,6 +231,24 @@ class VolumeChecks(unittest.TestCase):
             self.assertEqual(metadata.stat().st_mtime_ns,stamp)
             reopened=VolumeSource(output)
             np.testing.assert_allclose(reopened.spacing,[.003,.004,.005])
+
+    def test_directory_preserves_symlinks_and_applies_explicit_filters(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);physical=root/'physical';physical.mkdir()
+            link=root/'logical';link.symlink_to(physical,target_is_directory=True)
+            (physical/'child').mkdir()
+            for name in ('scan.h5','image.tiff','notes.txt'):(physical/name).touch()
+            directory,entries=directory_entries(link)
+            self.assertEqual(directory,link)
+            self.assertEqual({e['name'] for e in entries},{'child','image.tiff','scan.h5'})
+            _,entries=directory_entries(link,all_files=True,name_filter='*.h5')
+            self.assertEqual({e['name'] for e in entries},{'child','scan.h5'})
+            self.assertTrue(all(Path(e['path']).parent==link for e in entries))
+            self.assertEqual(next(e['kind'] for e in entries if e['name']=='scan.h5'),'HDF5 volume (import)')
+            _,combined=directory_entries(link,all_files=True,name_filter='*.tiff; *.h5')
+            self.assertEqual({e['name'] for e in combined},{'child','scan.h5','image.tiff'})
+            child,_=directory_entries(link/'child')
+            self.assertEqual(child.parent,link)
 
     def test_directory_lists_zarr_as_image_and_tiff_as_import(self):
         with tempfile.TemporaryDirectory() as folder:

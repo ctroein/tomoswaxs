@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const {KEY,normalise,load,remember}=require('../src/tomoswaxs/assets/projects.js');
+let history=normalise(null);
+for(let i=0;i<12;i++)history=remember(history,{kind:'opened',path:`/p/${i}`,name:`Project ${i}`});
+assert.equal(history.projects.length,8);
+assert.equal(history.last,'/p/11');
+history=remember(history,{kind:'opened',path:'/p/8',name:'Renamed'});
+assert.equal(history.projects[0].name,'Renamed');
+assert.equal(history.projects.filter(p=>p.path==='/p/8').length,1);
+history=remember(history,{kind:'closed'});
+assert.equal(history.last,'');assert.equal(history.projects.length,8);
+assert.deepEqual(load({getItem:()=>'{broken'}),{projects:[],last:''});
+assert.deepEqual(load({getItem:()=>JSON.stringify(history)}),history);
+assert.equal(normalise({projects:[null,{path:4,name:'bad'}]}).projects.length,0);
+console.log('Recent-project ordering, deduplication, bounds, close and recovery passed.');

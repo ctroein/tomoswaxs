@@ -1,269 +1,285 @@
 # TomoSWAXS user guide
 
-TomoSWAXS displays a sample volume together with a SAXS intensity curve and
-an intensity map against scattering coordinate q and azimuth φ. The current
-demo can use a synthetic specimen or a loaded CT volume. The scattering data
-are illustrative.
+TomoSWAXS lets you explore a sample’s 3D CT image alongside its SAXS measurements.
 
-## Start
+The interface reopens the last project used in this browser when it is available.
+Recent projects appear in the Project menu. Closing a project clears automatic
+reopening while keeping it in the recent list. If a project is unavailable, the
+interface shows the error so you can choose another project or sample.
+A **sample** brings those datasets together. A **project** groups samples and
+remembers how you were viewing each one.
 
-With the project virtualenv active, run from the repository directory:
+This guide covers the web interface. For installation and starting the
+application, see the [installation guide](installation.md).
 
-```bash
-uv run --active --locked tomoswaxs --server --port 8080 --timeout 0
-```
+## Begin with a sample
 
-Open http://127.0.0.1:8080/ in a browser. Stop the server with Ctrl+C in its terminal.
+If a sample is already open, you can begin [exploring it](#explore-the-sample).
+To return to saved work, choose **Project → Open project** and select the project
+directory or its `project.json` file. The **Sample** selector beside **Open sample…**
+switches between its samples.
 
-## Projects and samples
+For new work, create a project through **Project → New project**, choosing a
+folder for it, then use **Open sample…** to add your CT image. Supported inputs
+are OME-Zarr images, HDF5 volumes and [3D TIFF files](#open-and-import-ct-volumes). Scattering
+measurements are attached [separately](#browse-measured-saxs).
 
-Use the **Project** menu for **New project**, **Open project**, **Project settings**
-and **Close project**.
+The file chooser shows files on the computer running TomoSWAXS. When you access
+a remotely hosted application, your data must be accessible on that computer.
+The chooser retains symlink paths while you navigate. **Filter** lists names and
+patterns together, such as **Projects (project.json)** or **TIFF (*.tif, *.tiff)**.
+Opening a project, CT image or SAXS scan selects the corresponding filter.
+Choose **All files (*)** to show other files, or **Custom pattern…** to enter a
+pattern such as `recon*`. Separate multiple custom patterns with semicolons.
+Directories remain visible for navigation.
 
-For **New project**, choose a directory using the folder icon beside the path
-field. Navigate to the destination, use **Create folder** if needed, and choose
-**Use this directory**. The new project takes its name from that directory.
-**Include current sample** adds the displayed sample and its viewing state.
-
-For **Open project**, the folder icon opens the project picker. Select a project
-file or directory there, or enter its path directly and press **Open project**.
-The picker browses the application host's filesystem.
-
-The header shows the project name and an **Active sample** selector. **Add sample**
-opens or imports another CT dataset. **Sample settings** holds the sample name
-and axis assignment. Rename the project in **Project → Project settings**. Settings and viewing state
-are saved automatically after valid changes settle. Reopening a project restores
-its active sample, beam position and size, angle, contrast, opacity and camera.
-
-Existing OME-Zarr datasets are referenced in place. TIFF conversions default to
-`data/<sample-id>/ct.ome.zarr` inside the project; choose **External destination**
-to write elsewhere. `results/<sample-id>/` and `figures/<sample-id>/` are the
-locations for future analysis outputs, created when needed. Stable sample IDs
-keep associations intact when names change. Different projects can reference
-the same dataset with independent settings and results.
-
-Paths inside the project are relative, so the project and its internal data can
-be moved together. If external data have moved, open **Project → Project settings**, select the
-**Sample to locate**, and choose **Locate sample data** to update its reference.
-A failed or cancelled sample load preserves the displayed volume. Save failures
-are reported in the footer and project dialogs. After an external manifest edit,
-**Project → Reload saved project** reopens the on-disk version and discards unsaved viewing
-changes.
-
-Without a project, the header says **Standalone inspection**. This is read-only
-inspection: viewing controls can be adjusted temporarily, without saving sample
-settings or analysis results. **Add to project** retains the current sample and
-view in a new or existing project. **Project → Close project** returns to standalone
-inspection. The explicit import pixel size edit described below updates the
-dataset itself. Some future analysis tools will require an active project.
-
-A project can also be opened at startup:
-
-```bash
-tomoswaxs --server --port 8080 --timeout 0 --project /path/to/project.json
-```
-
-Project name edits in **Project settings** are saved when the dialog closes.
-An empty name keeps the dialog open for correction. Opening **Locate sample
-data** also saves the edited name before continuing to the file chooser.
-
-## Open and import CT volumes
-
-Choose **Open volume** to browse the application host's filesystem. Select an
-OME-Zarr image and press **Open**. Double-click a folder or press Enter to enter
-it; **Open** also enters the selected folder. **Parent directory** moves up.
-Press Enter in the directory field, or use **Refresh**, to list that path.
-Click a column heading to sort by name, size or modification time. A single click
-selects an entry and shows its type, file size and full path below the table.
-
-For TIFF samples imported with user-supplied pixel size, **Sample settings →
-Pixel size (µm)** lets you revise those sizes. **Preserve XYZ ratio** scales all
-three values proportionally; clear it to edit them separately. Closing the dialog
-updates the OME-Zarr coordinate metadata at every resolution level and refits the camera. Image values
-are preserved. This explicit import pixel size edit also works during standalone
-inspection; project-specific settings and analysis results still require a project.
-
-Selecting a TIFF opens import settings. Without an active project, choose
-**Create new project** to use a project destination, or choose a new external
-**OME-Zarr destination** for standalone inspection. Conversion writes a new
-dataset and preserves the TIFF. With an active project, the destination defaults
-to its data directory. **Pixel size** is in X, Y, Z order, in µm. Physical
-pixel sizes are read from supported OME-TIFF or ImageJ metadata when available;
-otherwise they start at 1 µm on each axis. **Preserve XYZ ratio** scales all three
-values proportionally when any one field is edited. Clear it to edit sizes
-separately. Pixel-size metadata are read afresh for each selected TIFF. The resulting dataset records that spacing and can be reopened directly.
-
-Press **Open** to import and show the volume. Progress is displayed, and
-**Cancel** stops the operation and removes the incomplete import. A failed or
-cancelled operation keeps the previous scene. Existing destinations are
-preserved; choose the existing OME-Zarr image to reopen it.
-
-**Voxel array size limit (MiB)** limits the voxel array loaded into RAM for
-volume rendering (64 MiB by default). The viewer picks a suitable pyramid level; a stride preview is used
-when the store has no sufficiently small level. The footer shows preview
-resolution and physical spacing. Overall process RAM also includes rendering,
-I/O buffers and application overhead.
-
-To open an existing image:
-
-```bash
-uv run --active --locked tomoswaxs --server --port 8080 --timeout 0 \
-  --volume /path/to/image.ome.zarr --preview-mib 64
-```
-
-TIFF conversion can also run separately with `--import-tiff FILE --output
-DESTINATION --import-only`. Supply `--voxel-size-um` followed by one isotropic
-value or three X Y Z values when metadata does not provide physical spacing.
-Omit `--import-only` to open the converted image immediately. `--data-dir`
-chooses the initial GUI browsing directory.
-
-The bundled demo's downsampled cjd TIFF uses an explicitly supplied test spacing
-of 10 µm along each axis. That arbitrary value applies only to that demo.
-
-The importer writes OME-Zarr 0.5 with full-resolution scalar values and a block-
-mean pyramid. TIFF coordinates are centred around zero. Existing OME-Zarr scale
-and translation metadata are retained. Scalar ZYX images with physical length
-units are supported.
-
-Expand **Contrast** to adjust display limits. The initial limits use sampled
-preview median and 99.5th percentile, with a sampled minimum/maximum fallback.
-Minimum and maximum map intensities to 0–1 for colour and opacity. **Reset
-contrast** restores the initial limits for the current sample. Spinbox increments
-are scaled to that sample's initial intensity range.
-The source's full-resolution values remain available independently of the
-preview. SAXS is fabricated and is labelled **SYNTHETIC SAXS**.
+You can also open a sample without a project for temporary inspection. A project
+is needed to retain sample settings and saved views between sessions. To keep
+work begun this way, choose **Project → New project → Include current sample**.
 
 ## Explore the sample
 
-Drag with the left mouse button to orbit the camera. Use the mouse wheel or
-right-button drag to zoom, and middle-button drag to pan. With the left button, hold Shift to pan, Ctrl to roll the view, or Shift+Ctrl to zoom. **Saved views → Default camera** restores
-the initial viewpoint. **Beam view** looks along the beam. Zoom-out stops at four
-times the fitted view extent to keep the sample visible.
+The **µCT volume** panel shows the sample, with a beam when SAXS data are attached.
+Click and drag to turn the view, scroll to zoom, and hold Shift while dragging
+to pan. Ctrl-drag rolls the view; Shift+Ctrl-drag zooms. These gestures change
+your viewpoint. Turning the view or playing camera rotation keeps the selected
+scattering measurement.
 
-The beam travels along +Z. Its colour fades from light cyan at its origin to
-dark blue downstream. **Opacity** adjusts the transparency of the sample.
+**Beam view** stops camera playback and sets an orthographic camera view along the beam.
+This is useful for choosing where it passes through the sample.
+The help button in the volume panel’s header provides a
+reminder of the mouse controls.
 
-## Position the beam
+Use **Opacity** to see through the sample. The **Colour mapping** minimum and
+maximum set the intensity interval mapped to the display’s colour and opacity
+range. The arrow step follows the scale of the upper value. **Reset** beside
+these values restores the initial limits for that sample.
 
-Use the X and Y fields or sliders under **Beam position** to position the beam.
-Positions are displayed in micrometres (µm).
+### Turn the camera and select a measurement
 
-For direct positioning, hold **Alt+Shift**, then press and drag the left mouse
-button in the volume view. Release the mouse button to finish. **Beam view**
-is convenient for this operation because it shows the XY positioning plane
-face-on. The gesture stays in beam-positioning mode until mouse release.
+**Camera angle** turns the viewpoint around the visible cropped region. Angles
+wrap around at ±180°. The play button starts continuous camera rotation; the
+same button pauses it. The adjustments button beside it sets the update
+frequency and angular step, and shows the resulting time per revolution.
 
-During scrubbing, the volume follows the controls; the SAXS panels refresh when
-the gesture finishes. Rapid input is coalesced to the latest values.
+Choose the beam position and sample rotation in **SAXS measurements** to browse
+the acquired data. The lock button beside X keeps the approximate X coordinate
+as rotation changes, selecting the nearest acquired position at each angle.
+With the lock off, rotation changes keep the measurement index.
+You can also hold **Alt+Shift** and drag with the left mouse
+button in the volume to position the beam. Its colour fades from light at the
+origin to dark downstream.
 
-## Rotate the sample
+In **SAXS measurements**, **Show beam** controls beam visibility.
+**Beam size → Radius (µm)** sets the displayed beam’s horizontal and vertical
+radii.
 
-Use the **Sample angle** field or slider to rotate the object around Y relative
-to the beam. Angles wrap around ±180° when stepping or entering values beyond
-the ends of the range.
+### Return to a useful view
 
-Open **Sample settings** in the header. Under **Axis assignment**,
-choose **File direction for sample Y** to correct
-the assumed TIFF dimension order: X is columns, Y is rows and Z is the stack.
-Choose the file direction that should be treated as the sample's Y axis,
-about which the sample rotates. The choice is saved in the active project and
-restored with the sample. During standalone inspection it applies temporarily. Existing `nim-view.json` axis
-settings are read as initial values when adding a dataset; the dataset is kept
-unchanged.
-
-The **Play/Pause** button starts rotation and switches to Pause; click it again to hold the current angle. The adjustments
-button beside these icons opens **Rotation settings**: choose updates per second
-and the angular step per update. The popup shows seconds per full turn. Defaults
-are 20 updates/s and 1.5°, giving a 12-second turn. These settings are saved in
-this browser. During
-playback, the volume and scattering panels follow the selected rotation poses.
-Camera orbiting changes the viewpoint; sample rotation changes the object's
-orientation relative to the beam.
-
-## Saved views
-
-Use **Saved views → Save current view…** to name the current X/Y position,
-sample angle and camera view, including zoom. Choose a name from the menu to
-pause playback and restore that pose and camera together. **Manage saved views…**
-provides Rename and Delete. **Default camera** restores the standard camera.
-
-Saved views belong to the current sample and persist in its project record.
-During standalone inspection they remain in memory for the application session;
-adding that sample to a project retains them.
-
-## Beam size
-
-Expand **Beam size** at the left of the row below the coordinate sliders. It
-contains **Radius (µm)** with **X** and **Y** prefixes in the two fields, for the
-horizontal and vertical semi-axes of the elliptical beam. In this demo these
-adjust the displayed beam geometry. The fabricated SAXS signal currently depends
-on beam position and sample angle, rather than beam radius.
-
-## Crop and resolution
-
-**Crop** and **Resolution** are movable tabs, initially grouped beside the volume.
-Open or close either through **Tabs**, drag them to another position, or use their
-pop-out icons to place the controls in a separate window.
-
-Crop has start/end spinboxes and a two-handle slider for each image axis. The
-numbers are full-resolution voxel indices. Start is included and end is excluded;
-`X 40–120` selects 80 voxels. These image axes precede the sample’s axis assignment
-and rotation. Changing resolution preserves the same physical region.
-
-Changes update the displayed region and load the needed OME-Zarr chunks in the
-background. New requests replace older ones. **Cancel loading** restores the
-previous loaded region. **Reset crop** selects the complete sample, and **Copy
-coordinates** copies Python-style `[z_start:z_end, y_start:y_end, x_start:x_end]`.
-Enable **3D handles** to resize the crop box directly in the volume viewer.
-
-Resolution offers **Auto** and the available OME-Zarr levels, with cropped
-array dimensions, array size and XYZ voxel size. Level 0 is full resolution.
-Auto chooses the finest level fitting **Voxel array size limit (MiB)**. Smaller
-crops can therefore use finer levels. Levels exceeding the limit are marked
-“too large”. If no stored level fits, Auto subsamples the coarsest level and
-reports the subsampling factor in **Loaded array**. The loaded-array readout
-shows what is currently being rendered while a new request is loading.
-
-The size limit covers the voxel array in RAM. Rendering, decompression and other
-application allocations also use memory. There is no additional 512-voxel axis
-limit. Set a suitable array limit for the machine running the application.
-
-Projects remember crop and level selection per sample. Standalone selections
-last while that sample remains open. Cropping changes the displayed CT region;
-the scattering demonstration continues to sample the full source dataset.
+**Saved views → Save current view…** records the beam position, sample angle and
+camera view together. Selecting a saved name restores that combination and
+pauses rotation. Saved views belong to the sample and are retained in its
+project. **Saved views → Default camera** restores the initial viewpoint.
 
 ## Read the SAXS panels
 
-The left panel shows I(q), the mean intensity over the cake's azimuthal bins.
-Enable **Log I** for a logarithmic intensity axis.
+**SAXS 1D** shows intensity I(q) against scattering coordinate q. **SAXS cake**
+shows intensity against q and azimuth φ. With measured data attached, both plots
+come from the same selected measurement; I(q) is the supplied integrated curve.
+Grey cake bins indicate missing data, including regions without detector
+coverage. Turquoise indicates measured zero intensity. The legend and hover
+labels identify these colours. Negative intensities, if present, appear blue.
+The q axis uses the units recorded in the file.
 
-The right panel shows I(q, φ) as a heatmap with a fixed logarithmic colour scale.
-Plotly's controls provide plot zoom, pan, reset and image export. Double-click a
-plot to restore its axis ranges.
+**Log I** changes the curve’s intensity axis to a logarithmic scale. The cake
+uses logarithmic colours and an automatic colour range.
+Use the plot toolbar to zoom or export an image; double-click a plot to restore
+its axis ranges.
+
+The plots remain empty until scattering data are attached. **Sample settings**
+identifies the current data sources.
+
+## Browse measured SAXS
+
+Choose **Sample settings → Load SAXS scans…**.
+Select an integrated `scan-XXXX_eiger_integrated.h5` file, or choose **Load scans
+in this directory** to attach the scans together. The corresponding motor
+metadata must be in `Metadata/scan-XXXX.h5` beside the integrated files. The
+current reader supports the ForMAX X/rotation mesh scans supplied with the
+Bamboo data.
+
+The **SAXS measurements** panel is below **Crop and resolution** on the right. Select a
+scan under **Scan / Y**, then choose X and rotation with the list spinboxes or
+sliders. Arrow keys and the −/+ buttons step between acquired values. Typed
+values are accepted only when present in the selected scan. Both plots follow
+the selection. **Measurement details** contains the original motor readbacks.
+
+The fields show the beam position and sample angle in the CT viewer’s coordinates.
+Selecting a measurement moves the beam and rotates the sample. Moving the CT
+controls selects the nearest acquired measurement; its position can differ from
+the continuously positioned beam. **Measurement details** shows the original
+motor readbacks and flags discrepant rotation readbacks. Y may come from a
+start-of-scan snapshot, as indicated there.
+
+### Relate measurements to the CT image
+
+**CT registration** saves the coordinate model with the sample. When a CT
+motor reference accompanies the scans, **ForMAX motor stack** is the starting
+model. It treats tomo_ry and swaxs_y as sharing the vertical direction. The
+alignment stages tomo_xf/tomo_zf rotate with tomo_ry: tomo_zf contributes
+horizontally at 0°/180°, and tomo_xf at 90°/270°.
+
+The table gives each motor's CT reference position in mm and signed factors
+mapping motor differences into beam coordinates. Positive factors increase the
+beam coordinate; negative factors reverse that direction. For the two rotating
+fine stages, the X factor is their transverse amplitude; their Y contribution
+is zero. swaxs_x uses the acquired nominal grid, swaxs_y uses recorded positions
+or its scan snapshot, and other motors use snapshots.
+
+**Trajectory correction (µm)** gives X and Z coefficients for the angular
+beam-position correction. It adds X × cos(angle) + Z × sin(angle) to beam X
+in the centred CT frame. The CT rotates about its central Y axis, after
+**Sample Y from image** aligns the image. The trajectory correction,
+**CT offset** and **Beam-centre shift** are separate registration parameters.
+
+**Rotation direction** and **Rotation offset** relate the motor angle to the
+CT orientation. The mechanical fine-stage projection uses the original motor
+angle. For Bamboo, the initial camera displacement is X 506.35 µm and Y
+133.9 µm, and image Z is initially aligned with sample Y. These values and the
+motor directions remain provisional until the reconstruction reference is
+confirmed. The current hypothesis assumes swaxs_ry is 180°; measurements with
+a different snapshot show a request for beamline confirmation.
+
+**Motor differences from CT reference** maps each motor displacement to X and Y
+using constant factors. It supports simpler stage arrangements with fixed motor
+directions. **ForMAX motor stack** also accounts for the fine stages rotating
+with the sample. **Manual scan origin** supports direct coordinate mapping. Custom
+registrations are retained. An untouched original motor estimate upgrades to
+the stack model. Parameters persist with the sample when scans are changed.
+
+Scattering may exist at only a few Y levels. Choose an acquired level under
+**Scan / Y**. The project remembers the attached scans, selected measurement and
+registration.
+
+## See detail in a large image
+
+**Crop** chooses the part of the CT image to display. Its coordinates are voxel
+indices in the original image, before the sample’s axis assignment and rotation.
+**Units** switches the fields between voxels and µm. Physical values describe
+voxel boundaries in image coordinates; edits snap to the nearest voxel boundary.
+Switching units preserves the crop.
+The end index is exclusive: X from 40 to 120 selects 80 voxels. Use the paired
+slider handles or enable **3D handles** to adjust the box in the volume view.
+
+Enable **Auto detail** in Crop to concentrate the loaded data on the current
+view. Zooming in can then reveal finer OME-Zarr levels. Manual Crop remains the
+outer boundary. Existing detail stays visible during movement; newly exposed
+regions load progressively from coarse to fine.
+
+**Depth** controls the thickness shown around the camera's focal point. Move
+left for a thinner region; the thickness in µm follows zoom. **Full** includes
+the entire manual crop along the viewing direction. While orbiting, a thin
+region turns with the camera and reveals different sections through its centre.
+Use **Freeze region** to hold the current region on the sample and examine that
+same material from other directions. **Unfreeze region** resumes following the
+camera. Panning moves the viewing centre.
+
+**Resolution** chooses how much image detail to load. OME-Zarr images can contain
+several resolutions: level 0 is full resolution, and higher levels contain
+progressively fewer voxels. **Auto** chooses the finest detail that fits the
+**Voxel array limit (MiB)** for the selected crop. Reducing the crop can
+therefore make finer detail available.
+
+The size limit is the memory occupied by the loaded voxel array. Total
+application memory also includes cached image chunks, rendering and temporary
+arrays during loading. **Loaded**
+reports the resolution actually being displayed, including any further
+subsampling needed to fit the limit.
+
+Changing resolution preserves the crop’s physical region. Changing the crop
+centres camera rotation on the cropped region while keeping the viewing
+direction and zoom. The project remembers crop and resolution choices per sample.
+Auto detail, depth and a frozen region are also remembered with the sample.
+
+## Open and import CT volumes
+
+An OME-Zarr image opens directly through **Open sample…**. TIFF and HDF5 inputs must first be
+converted to an OME-Zarr image; the import dialog asks where to save it. Within a
+project, the destination defaults to its data folder. For an external destination,
+use the folder button to choose the directory and edit the destination name as
+needed. For standalone inspection,
+you can create a project or choose an external destination. Conversion preserves
+the source file and produces an image you can reopen without converting again.
+Progress identifies the resolution level being written and the total number of
+levels. The first is full resolution; subsequent levels are progressively coarser.
+
+Check **Pixel size (µm)** before importing. Supported TIFF pixel-size metadata
+supply the values when available; otherwise the fields start at 1 µm. Enter the
+sizes for X, Y and Z. **Preserve XYZ ratio** changes the values proportionally
+when you edit one; clear it to enter each size independently.
+
+### Import an HDF5 volume
+
+Select the HDF5 file through **Open sample…**. **HDF5 volume dataset** lists its
+numeric 3D arrays with their dimensions and data types. Select the CT array;
+a file containing a single candidate selects it automatically.
+
+**Stored dimension order** assigns axes to the dataset’s first, second and third
+dimensions. ZYX is the fallback assumption. The supplied ForMAX reconstruction’s
+Z/X/Y metadata supplies ZXY instead; confirm its physical orientation for your
+sample. Recognized `/metadata/pixel_size_cm` supplies an isotropic starting pixel
+size in µm. Otherwise enter the pixel sizes, which initially show 1 µm.
+
+Choose an OME-Zarr destination and import. Conversion reads blocks, preserves
+scalar values at full resolution and creates coarser levels for viewing. The
+result can subsequently be opened directly. For Bamboo, select `/data/recon_abs`;
+the file supplies 0.65 µm pixel size. CT/scattering registration is separate from
+this import.
+
+### Correct image geometry
+
+If you supplied the pixel size during import, it can be revised under
+**Sample settings → Pixel size (µm)**. Closing that dialog saves the new sizes to
+the imported OME-Zarr image itself. This also changes the sizes seen by other
+projects referencing that image.
+
+**Sample settings → Axis assignment → File direction for sample Y** corrects
+the orientation when a TIFF’s dimension order was assumed incorrectly. Here,
+file X means columns, Y means rows and Z means the stack. Choose the file
+direction corresponding to the sample’s rotation axis. That assignment is saved
+with the sample in the project.
+
+## Keep work in a project
+
+A project saves its samples, viewing settings, CT/scattering associations and
+saved views automatically. **Samples…** lists its members and their sources and allows renaming without loading;
+**Show sample** displays the selected member. Data paths are also listed under
+**Sample settings → Data sources**.
+**Remove from project** removes a sample’s membership and saved settings while
+keeping the data files.
+
+Existing datasets are referenced where they are. TIFF imports normally go inside
+the project folder. When moving a project, keep its internal directory structure
+together. External datasets must remain accessible; if a CT dataset has moved,
+use **Project → Project settings → Locate sample data** to find it again.
+
+Standalone inspection keeps viewing adjustments temporarily. The explicit pixel
+size edit described above still changes the imported dataset. Some future
+analysis tools will require an active project.
 
 ## Arrange the interface
 
-Drag a panel tab to an edge to create a horizontal or vertical split. Drop it
-onto another tab strip to group the panels as tabs. Drag the dividers to resize.
-Shift-drag a tab to create an in-page floating panel; Shift-drag its tab back to a
-dock target to reattach it. **Tabs** shows a check beside each open panel. Select an entry to open or close that panel.
+Drag panel tabs to an edge to split the workspace, or onto another tab strip to
+group panels. **Tabs** opens closed panels and can restore the default layout.
+Shift-drag creates a floating panel inside the page.
 
-The arrow icon beside a tab’s close button opens that panel in a separate browser
-window. Move the window to another monitor or desktop as needed. The arrow in
-that window returns the panel to the main window. Closing the browser window
-also returns its panels; the tab’s × closes the panel. Keep the main application
-window open while using detached panels.
+The arrow beside a tab’s close button opens the panel in a separate browser
+window. The arrow in that window returns it; closing the window also returns
+its panels. Keep the main application window open while using these windows.
 
-Detached panels follow appearance and text-size changes in Settings. If the
-browser blocks a new window, allow popups for the application’s address and try
-again. Remember panel layout restores detached panels into the main window when
-the application page is reloaded.
-**View → Restore default layout** restores the volume above the two SAXS views.
-
-**Settings** provides System, Light and Dark appearance; text size from 80–160%;
-**Remember panel layout**; and **Show coordinate axes**. The RGB coordinate axes
-are hidden by default. Preferences are saved in the current browser.
-**Reset preferences** restores the defaults.
-
-**About** contains the project credits, linked infrastructure logos, MIT licence,
-and installed dependency versions.
+The **Settings** gear provides theme, text size, plot font size, the voxel array limit and
+**Remember panel layout and sizes**. This remembers splitter proportions as well
+as panel arrangement. Changes to the limit in Crop and resolution are remembered too.
+Plot font size is a percentage of interface text size; 100% uses matching sizes.
+These preferences are saved in the browser. A remembered layout restores detached
+panels inside the main window when the page is reloaded.

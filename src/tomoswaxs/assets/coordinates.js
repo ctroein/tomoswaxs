@@ -45,104 +45,78 @@
   }
   const state=window.trame.state;
   window.nimPixelSizes=createPixelSizes(state);
-  const fields={beam_x:'draft_x',beam_y:'draft_y',angle:'draft_angle'};
-  const dirty=new Set();
-  let activeRange=null, finishTimer=null, synchronising=false;
-  function valueOf(field) {
-    const raw=state.get(fields[field]);
-    if (raw === '' || raw == null) return null;
-    const value=Number(raw);
-    if (!Number.isFinite(value)) return null;
-    if (field === 'angle') return wrapAngle(value);
-    const limit=Number(state.get('beam_limit_um')) || 1600;
-    return value >= -limit && value <= limit ? value : null;
+  let dirty=false, synchronising=false, activeRange=null, finishTimer=null;
+  function angle() {
+    const raw=state.get('draft_camera_angle');
+    return raw==='' || raw==null || !Number.isFinite(Number(raw)) ? null : wrapAngle(Number(raw));
   }
   function submit(finished=false,urgent=false) {
-    const values={};
-    for (const field of dirty) {
-      const value=valueOf(field);
-      if (value !== null) values[field]=value;
-    }
-    window.nimUpdates.submit('pose',{values,finished},urgent);
+    const value=angle();
+    if(dirty && value!==null)window.nimUpdates.submit('camera',{angle:value,finished},urgent);
   }
-  function finish() { clearTimeout(finishTimer); submit(true,true); }
+  function finish() {clearTimeout(finishTimer);submit(true,true);}
   const rotation=createRotation({
     getSettings:()=>({frequency:Number(state.get('rotation_fps')),step:Number(state.get('rotation_step'))}),
-    getAngle:()=>valueOf('angle') ?? Number(state.get('angle')),
-    setAngle:value=>state.set('draft_angle',value),
+    getAngle:()=>angle() ?? Number(state.get('camera_angle')),
+    setAngle:value=>state.set('draft_camera_angle',value),
     setPlaying:value=>state.set('rotation_playing',value),finish,
   });
-  window.nimCoordinates={pause:()=>rotation.pause()};
-  state.addListener(({type,keys=[]}) => {
-    if (type !== 'dirty-state' || synchronising) return;
-    if (keys.some(key=>key === 'rotation_fps' || key === 'rotation_step')) rotation.configure();
-    if (keys.includes('sample_context')) {
-      clearTimeout(finishTimer);
-      activeRange=null;
-      dirty.clear();
-      rotation.pause();
-      synchronising=true;
-      try { for (const [field,draft] of Object.entries(fields)) state.set(draft,state.get(field)); }
-      finally { synchronising=false; }
+  window.nimCoordinates={pause:()=>rotation.pause(),beamView() {
+    dirty=false;activeRange=null;clearTimeout(finishTimer);
+    rotation.pause();
+    synchronising=true;state.set('draft_camera_angle',0);synchronising=false;
+    // Replace any pending angle, and run after the in-flight camera request.
+    window.nimUpdates.submit('camera',{action:'beam-view'},true);
+  }};
+  function sync() {
+    synchronising=true;
+    try {
+      state.set('draft_camera_angle',Number(state.get('camera_angle')) || 0);
+      for(const [field,draft] of [['beam_x','draft_x'],['beam_y','draft_y'],['angle','draft_angle']])state.set(draft,state.get(field));
+    } finally{synchronising=false;}
+  }
+  state.addListener(({type,keys=[]})=>{
+    if(synchronising)return;
+    if(type==='ready' || type==='refresh' || keys.includes('sample_context')) {
+      clearTimeout(finishTimer);dirty=false;activeRange=null;rotation.pause();sync();return;
     }
-    // Server acknowledgements must not overwrite newer local input.
-    synchronising=true;
-    try {
-      for (const [field,draft] of Object.entries(fields)) {
-        if (!keys.includes(field)) continue;
-        const canonical=Number(state.get(field));
-        const desired=valueOf(field);
-        if (dirty.has(field) && (desired === null || Math.abs(canonical-desired) > .001)) continue;
-        dirty.delete(field);
-        state.set(draft,canonical);
+    if(type!=='dirty-state')return;
+    if(keys.some(k=>k==='rotation_fps' || k==='rotation_step'))rotation.configure();
+    if(keys.some(k=>['beam_x','beam_y','angle','saxs_pose_revision'].includes(k))) {
+      synchronising=true;
+      for(const [field,draft] of [['beam_x','draft_x'],['beam_y','draft_y'],['angle','draft_angle']])state.set(draft,state.get(field));
+      synchronising=false;
+    }
+    if(keys.includes('camera_angle')) {
+      const target=angle(),canonical=Number(state.get('camera_angle'));
+      if(!dirty || (target!==null && Math.abs(wrapAngle(canonical-target))<=.001)) {
+        dirty=false;synchronising=true;state.set('draft_camera_angle',canonical);synchronising=false;
       }
-    } finally { synchronising=false; }
-    const changed=Object.entries(fields).filter(([,draft])=>keys.includes(draft));
-    if (!changed.length) return;
-    synchronising=true;
-    try {
-      for (const [field,draft] of changed) {
-        const value=valueOf(field);
-        if (value === null) continue;
-        dirty.add(field);
-        if (field === 'angle') state.set(draft,value);
-      }
-    } finally { synchronising=false; }
-    if (!dirty.size) return;
-    const playing=!!state.get('rotation_playing');
-    // During play, SAXS follows the selected frames. During scrubbing it
-    // refreshes at release; the volume follows the bounded interaction queue.
-    submit(playing);
+    }
+    if(!keys.includes('draft_camera_angle'))return;
+    dirty=true;
+    if(angle()===null){clearTimeout(finishTimer);return;}
+    synchronising=true;state.set('draft_camera_angle',angle());synchronising=false;
+    submit(!!state.get('rotation_playing'));
     clearTimeout(finishTimer);
-    if (!activeRange && !playing) finishTimer=setTimeout(finish,150);
+    if(!activeRange && !state.get('rotation_playing'))finishTimer=setTimeout(finish,150);
   });
-  synchronising=true;
-  for (const [field,draft] of Object.entries(fields)) state.set(draft,state.get(field));
-  synchronising=false;
-  function isCoordinate(target) { return target?.matches?.('input[id^="coord-"]'); }
-  document.addEventListener('pointerdown', event => {
-    if (event.target.closest('#volume-interaction')) rotation.pause();
-    if (isCoordinate(event.target) && event.target.type === 'range') {
-      activeRange=event.pointerId;
-      event.target.setPointerCapture(event.pointerId);
-      clearTimeout(finishTimer);
+  sync();
+  function isControl(target) {return target?.matches?.('input[id^="camera-angle-"]');}
+  document.addEventListener('pointerdown',event=>{
+    if(event.target.closest('#volume-interaction')) {rotation.pause();dirty=false;}
+    if(isControl(event.target) && event.target.type==='range') {
+      activeRange=event.pointerId;event.target.setPointerCapture(event.pointerId);clearTimeout(finishTimer);
     }
   },true);
-  function release(event) {
-    if (activeRange !== event.pointerId) return;
-    activeRange=null;
-    finish();
-  }
-  document.addEventListener('pointerup',release,true);
-  document.addEventListener('pointercancel',release,true);
-  document.addEventListener('lostpointercapture',release,true);
-  document.addEventListener('focusout',event=>{if(isCoordinate(event.target)) finish();});
+  function release(event) {if(activeRange===event.pointerId){activeRange=null;finish();}}
+  for(const name of ['pointerup','pointercancel','lostpointercapture'])document.addEventListener(name,release,true);
+  document.addEventListener('focusout',event=>{if(isControl(event.target))finish();});
   document.addEventListener('click',event=>{
-    if (event.target.closest('#open-volume, #open-project, #saved-views')) rotation.pause();
-    if (event.target.closest('#rotation-toggle')) {
-      if(state.get('rotation_playing')) rotation.pause();
-      else rotation.play();
+    if(event.target.closest('#open-volume, #open-project, #saved-views'))rotation.pause();
+    if(event.target.closest('#rotation-toggle')) {
+      if(state.get('rotation_playing'))rotation.pause();else rotation.play();
     }
   });
-  document.addEventListener('visibilitychange',()=>{if(document.hidden) rotation.pause();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)rotation.pause();});
 })();

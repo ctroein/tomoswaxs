@@ -13,6 +13,9 @@ teal accent. The folder icon retains its orange fill.
 | Open/return a detached panel | Local NIM SVG | `open-window.svg` |
 | Close a panel tab | NIM tab renderer | `×` |
 | View controls help | Quasar Material Icons font | `help_outline` |
+| Application settings | Quasar Material Icons font | `settings` |
+| Lock/unlock approximate SAXS X | Quasar Material Icons font | `lock` / `lock_open` |
+| Copy crop coordinates | Quasar Material Icons font | `content_copy` |
 
 SVG calls are in `ui.py` and the project dialog builder in `project_workflow.py`;
 font-icon calls are `quasar.QIcon(name=...)` in `ui.py`.

@@ -1,0 +1,17 @@
+[Unit]
+Description=TomoSWAXS local visualization server
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=%h/src/nim/nim
+Environment=PYTHONPATH=%h/src/nim/nim/src
+ExecStart=%h/.pyenv/versions/nim/bin/python -u -m tomoswaxs --server --port 8080 --timeout 0 --data-dir %h/src/nim/data
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

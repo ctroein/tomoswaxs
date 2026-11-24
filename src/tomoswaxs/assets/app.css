@@ -18,14 +18,16 @@ button,select {background:var(--button);color:var(--text);border:1px solid var(-
 button {cursor:pointer;padding-top:.225rem;padding-bottom:.225rem} button:hover {background:var(--hover)}
 input[type=number] {width:6em;background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:.35rem}
 input[type=range] {accent-color:var(--accent);vertical-align:middle}
-label {font-size:.86rem;color:var(--muted);white-space:nowrap}
+label {font-size:.86rem;color:var(--text);white-space:nowrap}
 .app-shell {height:100dvh;display:flex;flex-direction:column;min-width:0}
 .app-header {padding:.525rem;display:flex;gap:.525rem;flex-wrap:wrap;justify-content:space-between;align-items:center;background:var(--surface)}
 .header-actions {display:flex;gap:.525rem;align-items:center}
 .app-name {font-size:1.3rem}
 .app-header > div {flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.app-header > .header-actions {flex:1;justify-content:flex-start}
+.header-secondary {margin-left:auto}
+.settings-icon-button {display:inline-flex;align-items:center;justify-content:center;align-self:center;flex:none;width:calc(1lh + .45rem + 2px);height:calc(1lh + .45rem + 2px);padding:0;color:var(--accent)}
 .project-name {font-weight:bold;color:var(--accent);overflow-wrap:anywhere}
-.active-sample-name {color:var(--muted);overflow-wrap:anywhere;max-width:18rem}
 .project-card.q-card {width:42rem;max-width:calc(100vw - 32px);background:var(--panel);color:var(--text)}
 .project-card h2 {font-size:1.7rem;line-height:1.3;margin:0 0 .6rem}
 .project-card h3 {font-size:1.07rem;line-height:1.4;margin:1.4rem 0 .4rem}
@@ -41,7 +43,6 @@ label {font-size:.86rem;color:var(--muted);white-space:nowrap}
 .project-menu button {display:block;width:100%;text-align:left;background:transparent;border:0;padding:.5rem .7rem}
 .project-menu button:hover,.project-menu button:focus-visible {background:var(--hover)}
 .project-menu-trigger::after {content:'▾';margin-left:.5rem}
-.project-attach-actions {display:flex;gap:.5rem;flex-wrap:wrap}
 .demo-notice {font-size:.86rem;color:var(--notice)}
 .volume-picker.q-card {width:48rem;max-width:calc(100vw - 32px);background:var(--panel);color:var(--text)}
 .volume-picker input[type=text],.volume-picker select {display:block;width:100%;margin:.6rem 0;background:var(--input);color:var(--text);border:1px solid var(--border);padding:.5rem}
@@ -74,7 +75,7 @@ label {font-size:.86rem;color:var(--muted);white-space:nowrap}
 .about-card a,.about-card summary {color:var(--accent)}
 .about-card summary {cursor:pointer}
 .licence-text {white-space:pre-wrap;overflow-wrap:anywhere;font-size:.86rem;line-height:1.5;max-height:16rem;overflow:auto;padding:.85rem;background:var(--input)}
-.dependency-versions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem 1.6rem;font-size:1rem}
+.dependency-versions {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem .8rem;font-size:1rem}
 .dependency-versions span {font-variant-numeric:tabular-nums;color:var(--muted)}
 .settings-dialog {border:1px solid var(--border);border-radius:8px;padding:1.4rem;max-height:90vh;overflow:auto;font-size:1rem}
 .settings-dialog::backdrop {background:rgba(0,0,0,.55)}
@@ -91,6 +92,37 @@ label {font-size:.86rem;color:var(--muted);white-space:nowrap}
 .infrastructure-links {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem;margin-top:1.2rem}
 .infrastructure-links a {display:flex;align-items:center;justify-content:center;height:4.7rem;padding:.6rem;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px}
 .infrastructure-links img {display:block;width:100%;height:100%;object-fit:contain}
+.infrastructure-links .maxiv-logo-link {background:#fff}
+
+fieldset.controls {border:0;margin:0;min-width:0}
+.sample-selector {display:flex;align-items:center;gap:.35rem}
+.sample-selector select {max-width:22rem}
+.samples-card.q-card {width:58rem;max-width:calc(100vw - 32px);background:var(--panel);color:var(--text)}
+.samples-card h2 {font-size:1.7rem;line-height:1.3;margin:0 0 .8rem}
+.samples-table-scroll {max-height:45vh;overflow:auto;margin-bottom:1rem}
+#project-samples {width:100%;border-collapse:collapse}
+#project-samples th,#project-samples td {padding:.45rem .6rem;text-align:left;border-bottom:1px solid var(--border)}
+#project-samples thead {position:sticky;top:0;background:var(--panel)}
+#project-samples tbody tr {cursor:pointer}
+#project-samples tbody tr:hover {background:var(--hover)}
+#project-samples .file-selected {background:var(--button)}
+.sample-source {overflow-wrap:anywhere;max-width:20rem}
+#managed-sample-name {display:block;width:100%;margin:.4rem 0 .6rem;background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:.4rem}
+.sample-management-actions {display:flex;gap:.5rem;flex-wrap:wrap}
+.empty-workspace {flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.saxs-controls {min-width:260px}
+.saxs-fields {border:0;margin:1rem 0;padding:0;min-width:0}
+.saxs-fields>label,.saxs-fields>select {display:block;width:100%;margin:.5rem 0}
+.saxs-fields input[type=range] {width:100%}
+.saxs-coordinate {display:flex;gap:.4rem;align-items:center}
+.saxs-coordinate .axis-number {flex:1;min-width:0}
+.saxs-coordinate input[type=number] {width:100%}
+.saxs-placement-row {display:flex;gap:.5rem;margin:.4rem 0}
+.saxs-placement-row .axis-number {min-width:0;flex:1}
+.saxs-placement-row input {width:100%}
+.saxs-fields details {margin:.7rem 0}
+.saxs-fields details label {display:block;margin:.4rem 0}
+.saxs-flag {color:var(--notice);font-size:.9rem}
 @media (max-width:480px) {.dependency-versions {grid-template-columns:1fr}}
 
 .coordinate-controls {display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:1rem;width:100%}
@@ -104,15 +136,9 @@ label {font-size:.86rem;color:var(--muted);white-space:nowrap}
 .coordinate-slider input {width:100%;min-width:0;flex:1}
 .coordinate-slider .rotation-button {display:inline-flex;align-items:center;justify-content:center;font-size:1.15rem;padding:.15rem .2rem;color:var(--accent)}
 button:disabled {opacity:.45;cursor:default}
-.beam-size summary {display:flex;align-items:center;gap:.5rem;cursor:pointer;list-style:none;color:var(--text);font-size:1rem;background:var(--button);border:1px solid var(--border);border-radius:5px;padding:.225rem .75rem;user-select:none}
-.beam-size summary::-webkit-details-marker {display:none}
-.beam-size summary::before {content:'';width:0;height:0;border-top:.3rem solid transparent;border-bottom:.3rem solid transparent;border-left:.4rem solid currentColor;flex-shrink:0}
-.beam-size[open] > summary::before {transform:rotate(90deg)}
-.beam-size summary:hover {background:var(--hover)}
-.beam-size summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
 .beam-size label {display:inline-flex;align-items:center;gap:.4rem;margin:.4rem .6rem .2rem 0}
 .beam-radius-controls {display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-top:.5rem}
-.radius-label {color:var(--muted);font-size:.86rem}
+.radius-label {color:var(--text);font-size:.86rem}
 .beam-radius.q-field {width:8em;font-size:1rem;margin:0}
 .beam-radius .q-field__control {background:var(--input);border-radius:4px}
 .beam-radius .q-field__native[type=number] {flex:1;min-width:0;width:0;background:transparent;color:var(--text);border:0;border-radius:0;padding:0}
@@ -130,21 +156,20 @@ button:disabled {opacity:.45;cursor:default}
 .rotation-settings .settings-help {margin:.7rem 0}
 .rotation-settings .app-icon,.rotation-button .app-icon {width:1.15rem;height:1.15rem}
 
-.axis-prefix {padding-left:.45rem;color:var(--muted);font-weight:600}
+.axis-prefix {padding-left:.45rem;color:var(--text);font-weight:600}
 .sample-spacing-fields .axis-number {flex:1;min-width:0}
 .sample-spacing-fields .axis-number input[type=number] {flex:1;min-width:0;width:0}
 .rotation-settings-anchor,.view-help-anchor {display:flex;align-items:center;align-self:center;line-height:1}
 .controls .rotation-button {display:inline-flex;align-items:center;justify-content:center;height:1.8rem;min-width:1.8rem;padding:.15rem .2rem;line-height:1;color:var(--accent)}
-.view-help.q-menu {padding:.8rem;background:var(--panel);color:var(--text);border:1px solid var(--border);max-width:24rem}
+.view-help {position:fixed;inset:auto;margin:0;padding:.8rem;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:4px;max-width:min(24rem,calc(100vw - 16px));font-size:1rem;line-height:1.5}
 .view-help p {margin:.5rem 0 0}
 
 .dock-workspace {flex:1;min-height:0;width:100%}
 .dock-panel {display:flex;flex-direction:column;width:100%;height:100%;min-height:0;overflow:hidden}
-.plot-toolbar {padding:.2rem .6rem;background:var(--panel);color:var(--text);flex-shrink:0}
 .dock-workspace .dv-tabs-and-actions-container {height:1.8rem!important;font-size:.9rem}
 .dock-workspace .dv-tab {color:var(--text)}
 
-.dock-workspace,.dock-workspace [class*="dockview-theme-"] {--dv-group-view-background-color:var(--surface);--dv-tabs-and-actions-container-background-color:var(--panel);--dv-activegroup-visiblepanel-tab-background-color:var(--button);--dv-inactivegroup-visiblepanel-tab-background-color:var(--panel);--dv-activegroup-hiddenpanel-tab-background-color:var(--surface);--dv-inactivegroup-hiddenpanel-tab-background-color:var(--surface);--dv-tab-divider-color:var(--border);--dv-tabs-container-scrollbar-color:var(--border);--dv-separator-border:var(--border);--dv-sash-color:var(--border)}
+.dock-workspace,.dock-workspace [class*="dockview-theme-"] {--dv-group-view-background-color:var(--surface);--dv-tabs-and-actions-container-background-color:var(--panel);--dv-activegroup-visiblepanel-tab-background-color:var(--surface);--dv-inactivegroup-visiblepanel-tab-background-color:var(--surface);--dv-activegroup-hiddenpanel-tab-background-color:var(--panel);--dv-inactivegroup-hiddenpanel-tab-background-color:var(--panel);--dv-tab-divider-color:var(--border);--dv-tabs-container-scrollbar-color:var(--border);--dv-separator-border:var(--border);--dv-sash-color:var(--border)}
 .dock-workspace .dv-sash {z-index:5}
 
 .saved-view-card.q-card {width:34rem;max-width:calc(100vw - 32px);background:var(--panel);color:var(--text)}
@@ -162,13 +187,15 @@ button:disabled {opacity:.45;cursor:default}
 
 .nim-tab {display:flex;align-items:center;gap:.3rem;height:100%;padding:0 .35rem 0 .6rem;min-width:0}
 .nim-tab-title {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.nim-tab-control {display:flex;align-items:center;gap:.25rem;margin:0 .25rem;font-size:.8rem;line-height:1;color:var(--text);cursor:pointer}
+.nim-tab-control input {margin:0;accent-color:var(--accent)}
 .nim-tab-action {display:flex;align-items:center;justify-content:center;flex:none;width:1.35rem;height:1.35rem;padding:0;border:0;background:transparent;color:var(--muted);border-radius:3px}
 .nim-tab-action:hover {background:var(--hover);color:var(--text)}
 .nim-tab-action .app-icon {width:1rem;height:1rem}
 .nim-tab-close {font-size:1.3rem;line-height:1}
 .nim-tab-action.is-detached svg {transform:rotate(180deg)}
 
-.volume-controls-panel {height:100%;overflow:auto;padding:.8rem;background:var(--panel);color:var(--text)}
+.volume-controls-panel {height:100%;overflow:auto;padding:.8rem;background:var(--surface);color:var(--text)}
 .volume-controls-panel h3 {font-size:1.1rem;margin:0 0 .6rem}
 .volume-controls-panel h4 {font-size:1rem;margin:1rem 0 .5rem}
 .volume-controls-panel p {font-size:.9rem;line-height:1.4;overflow-wrap:anywhere}
@@ -180,3 +207,132 @@ button:disabled {opacity:.45;cursor:default}
 .crop-axis-row input[type=number] {width:0;min-width:0;flex:1;padding:.3rem .2rem}
 .crop-range {padding:.4rem 0;color:var(--accent)}
 .crop-actions {display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0}
+
+/* File navigation keeps the listing as the dialog's primary working area. */
+.volume-picker.q-card {width:64rem;height:90vh;max-height:90vh;display:flex;flex-direction:column}
+.volume-picker .picker-body {display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden;gap:.5rem}
+.volume-picker h2 {font-size:1.25rem;margin:0}
+.volume-picker .picker-navigation,.volume-picker .picker-filter {display:flex;align-items:center;gap:.5rem;flex-shrink:0}
+.volume-picker .picker-navigation input,.volume-picker .picker-filter input {flex:1;min-width:0;margin:0;padding:.35rem .5rem}
+.volume-picker .picker-navigation button {padding:.35rem;display:flex;align-items:center}
+.volume-picker .file-table {flex:1 1 20rem;min-height:12rem;margin:0;display:flex;flex-direction:column}
+.volume-picker .file-table .q-table__middle {height:auto;flex:1;min-height:0;overflow:auto}
+.volume-picker .file-details {display:flex;align-items:baseline;gap:.8rem;margin:0;flex-shrink:0;font-size:.85rem}
+.volume-picker .file-details strong {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45%}
+.volume-picker .file-details span {color:var(--muted)}
+.volume-picker .picker-import-options {flex:0 1 auto;max-height:24vh;overflow:auto;border-top:1px solid var(--border);padding-top:.5rem}
+.volume-picker .picker-import-options h3 {font-size:1rem;margin:0 0 .4rem}
+.volume-picker .picker-import-options input[type=text],.volume-picker .picker-import-options select {margin:.25rem 0;padding:.3rem .4rem}
+.volume-picker .picker-import-options p {margin:.3rem 0}
+.volume-picker .q-card__actions {flex-shrink:0}
+
+.volume-picker .picker-new-folder {display:flex;align-items:center;gap:.5rem;flex-shrink:0}
+.volume-picker .picker-new-folder input {flex:1;min-width:0;margin:0}
+
+.volume-picker .picker-filter select {flex:1;min-width:0;width:auto;margin:0;padding:.35rem .5rem}
+
+.volume-picker .picker-import-options {display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:.25rem .7rem;padding-top:.35rem}
+.volume-picker .import-row,.volume-picker .import-hdf-fields {display:contents}
+.volume-picker .picker-import-options input[type=text],.volume-picker .picker-import-options select {margin:0;height:2rem;min-width:0}
+.volume-picker .picker-import-options .path-field {margin:0;min-width:0}
+.volume-picker .picker-import-options .path-field input {width:0;flex:1}
+.volume-picker .import-pixel-controls {display:flex;align-items:center;gap:.8rem;min-width:0;flex-wrap:wrap}
+.volume-picker .import-pixel-controls .sample-spacing-fields {display:flex;flex:1;gap:.4rem;margin:0;min-width:13rem}
+.volume-picker .import-pixel-controls .axis-number {flex:1;min-width:0}
+.volume-picker .import-pixel-controls input[type=number] {width:0;flex:1;min-width:0;padding:.25rem}
+.volume-picker .import-ratio {display:flex;align-items:center;gap:.3rem;white-space:nowrap}
+.volume-picker .import-project-action {grid-column:2;justify-self:start}
+
+.registration-motors {width:100%;table-layout:fixed;font-size:.8rem;border-collapse:collapse}
+.registration-motors th {text-align:left;font-weight:normal}
+.registration-motors th:first-child {width:22%}
+.registration-motors td {padding:.15rem}
+.registration-motors input {width:100%;min-width:0;padding:.2rem}
+.registration-fields {display:flex;align-items:center;gap:.4rem}
+.registration-fields select {flex:1;min-width:0}
+.registration-source {overflow-wrap:anywhere}
+
+.saxs-fields {margin:0;padding:0}
+.saxs-control-row {display:flex;align-items:center;gap:.5rem;margin:.35rem 0}
+.saxs-control-row>label {flex:0 0 5.5rem;margin:0;white-space:nowrap}
+.saxs-control-row>select {flex:1;width:0;min-width:0;margin:0}
+.saxs-control-row>.saxs-coordinate {flex:0 1 auto;min-width:0;gap:.2rem}
+.saxs-coordinate>input {flex:1;width:0;min-width:0;background:var(--input);color:var(--text);border:1px solid var(--border);padding:.25rem}
+.saxs-coordinate>button {padding:.25rem .45rem}
+.saxs-readbacks {font-size:.85rem;width:100%}
+.saxs-readbacks th {text-align:left;font-weight:normal}
+.saxs-readbacks td {text-align:right}
+.crop-units-row {display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem}
+.crop-units-row select {width:auto;flex:none;margin:0}
+
+.saxs-coordinate .saxs-list-number {flex:0 1 auto;width:calc(9ch + 2.5rem);min-width:0}
+.saxs-list-number input {flex:1;width:0;min-width:0;background:transparent;border:0;color:var(--text);padding:.25rem}
+.saxs-list-number .coordinate-unit {padding-right:.25rem}
+.saxs-registration>label {display:flex;align-items:center;gap:.4rem;justify-content:space-between}
+.saxs-registration>label select {width:auto;flex:1;min-width:0;margin:0}
+
+/* Compact viewing controls and explicit disclosure affordances. */
+details > summary {display:flex;align-items:center;gap:.45rem;cursor:pointer;list-style:none}
+details > summary::-webkit-details-marker {display:none}
+details > summary::before {content:'';width:0;height:0;border-top:.28rem solid transparent;border-bottom:.28rem solid transparent;border-left:.38rem solid currentColor;flex-shrink:0}
+details[open] > summary::before {transform:rotate(90deg)}
+details > summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
+.toolbar-spacer {flex:7 1 0}
+.opacity-control {display:flex;align-items:center;gap:.5rem;flex:3 0 auto}
+.opacity-control input[type=range] {width:135px;min-width:135px;flex:1}
+.camera-controls {display:flex;align-items:center;gap:.4rem;flex:3 0 auto;min-width:0}
+.camera-controls .coordinate-number {flex:none}
+.camera-controls .coordinate-number input[type=number] {width:8.5em;font-variant-numeric:tabular-nums}
+.camera-controls label {white-space:nowrap}
+.camera-controls input[type=range] {width:135px;min-width:135px;flex:1}
+.camera-controls .rotation-button {display:inline-flex;align-items:center;justify-content:center;padding:.15rem .3rem;color:var(--accent);height:1.9rem}
+.colour-mapping {display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.colour-mapping label {white-space:nowrap}
+.colour-mapping input[type=number] {width:10.5em;min-width:7em}
+.crop-axis-row {grid-template-columns:1ch minmax(0,10ch) minmax(1.8rem,1fr) minmax(0,10ch);gap:.6rem}
+.crop-axis-row > label {margin:0;font-weight:500}
+.crop-axis-row input[type=number] {font-variant-numeric:tabular-nums;font-size:.9rem}
+.resolution-limit {display:flex;align-items:center;gap:.6rem;margin:.6rem 0}
+.resolution-limit label {margin:0;text-align:right;flex:none}
+.resolution-limit input {width:6.3em;min-width:0}
+.loaded-array-summary {white-space:pre-line}
+.detail-controls,.detail-depth-row {display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.detail-controls .detail-enable {display:flex;align-items:center;gap:.3rem;margin:0;flex:1}
+.detail-controls button {font-size:.9rem}
+.detail-depth-row label {margin:0}
+.detail-depth-row input {flex:1;min-width:3rem;width:0}
+.detail-depth-value {font-size:.85rem;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:6em;text-align:right}
+.saxs-coordinate>.saxs-x-lock {display:inline-flex;align-items:center;justify-content:center;padding:.225rem .45rem;min-width:calc(1lh + .45rem + 2px);height:calc(1lh + .45rem + 2px)}
+.saxs-x-lock[aria-pressed=true] {color:var(--accent);border-color:var(--accent);background:var(--hover)}
+
+.crop-actions>label {display:flex;align-items:center;gap:.3rem;margin:0 0 0 auto;white-space:nowrap}
+.registration-coordinate {display:flex;align-items:center;flex-wrap:wrap;gap:.4rem .6rem;margin:.5rem 0}
+.registration-coordinate>label {margin:0}
+.registration-coordinate .saxs-placement-row {flex:1 1 17em;min-width:min(100%,17em);margin:0}
+.saxs-placement-row .axis-number input[type=number] {flex:1;width:0;min-width:0}
+@media(max-width:1500px) {
+  .opacity-control,.camera-controls {flex:0 0 auto}
+  .camera-controls {margin-left:auto}
+  .opacity-control input[type=range],.camera-controls input[type=range] {flex:none;width:135px}
+}
+
+.sample-data-source {margin:.5rem 0;overflow-wrap:anywhere;user-select:text}
+
+.settings-row {display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.settings-row>label {flex:1;margin:0;min-width:10rem}
+.settings-row select {width:10rem;margin:0}
+.settings-row>input[type=range] {flex:1;min-width:6rem;width:8rem}
+.settings-row>input[type=number] {width:7rem;margin:0}
+.settings-number {display:inline-flex;align-items:center;gap:.3rem}
+.settings-number input {width:4.5rem;margin:0}
+.crop-units-row {flex-wrap:wrap}
+.crop-units-row .crop-actions {display:flex;align-items:center;margin:0 0 0 auto;gap:.4rem;flex-wrap:nowrap}
+.crop-units-row .crop-actions button {display:inline-flex;align-items:center;justify-content:center;padding:.225rem .4rem}
+.crop-units-row .crop-actions>label {margin:0}
+.resolution-choice {display:flex;align-items:center;gap:.6rem;margin:1rem 0 .6rem}
+.resolution-choice label {margin:0;flex:none}
+.resolution-choice select {flex:1;width:0;min-width:0;margin:0}
+.resolution-limit {justify-content:flex-end}
+.resolution-limit input {text-align:right}
+
+.beam-visibility {display:flex;align-items:center;gap:.35rem;margin:.65rem 0}

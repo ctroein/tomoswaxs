@@ -11,11 +11,10 @@ import numpy as np
 import tifffile
 from trame.app import get_server
 
-from tomoswaxs.app import Demo
+from sample_fixture import Demo
 from tomoswaxs.projects import Project, validate_view
 from tomoswaxs.volume_viewing import array_source
 from tomoswaxs.volumes import ImportCancelled, VolumeSource, import_tiff
-from tomoswaxs.synthetic_demo import scattering
 
 
 class CropChecks(unittest.TestCase):
@@ -66,11 +65,18 @@ class CropChecks(unittest.TestCase):
         source,_=self.source()
         app.render_source=source
         crop=((15,100),(25,110),(35,120))
+        app._saxs_config={'placement':{'model':'stack','pivot_x':520.,'pivot_z':370.}}
         for axis in 'xyz':
             for angle in (0,37,-120):
                 app.state.rotation_axis=axis;app.state.angle=angle
                 app.update_crop_widget(crop=crop)
                 self.assertEqual(app.widget_crop(),crop)
+                # The same transform positions the volume and crop handles.
+                app._saxs_config['link_ct']=False
+                app.update_scene()
+                matrix=app.sample.GetMatrix()
+                np.testing.assert_allclose([[matrix.GetElement(i,j) for j in range(4)] for i in range(4)],
+                                           app.sample_pose_matrix())
 
     def test_only_latest_load_commits_and_camera_beam_and_contrast_are_preserved(self):
         app=self.app();source=app.render_source
@@ -98,15 +104,19 @@ class CropChecks(unittest.TestCase):
         self.assertEqual(len(calls),2)
         self.assertEqual(app._render_spec['crop'][0],(10,111))
         self.assertEqual(app.volume.shape,(50,60,51))
-        self.assertAlmostEqual(app.sample.GetProperty().GetScalarOpacityUnitDistance(),float(min(app._synthetic_source.spacing)))
+        self.assertAlmostEqual(app.sample.GetProperty().GetScalarOpacityUnitDistance(),float(min(app._empty_source.spacing)))
         after=app.capture_view()
-        self.assertEqual(after['camera'],before['camera'])
+        # Cropping recentres the orbit target while retaining direction/zoom.
+        np.testing.assert_allclose(after['camera']['focal_point'],app.visible_crop_centre(),atol=1e-12)
+        np.testing.assert_allclose(np.subtract(after['camera']['position'],after['camera']['focal_point']),
+                                   np.subtract(before['camera']['position'],before['camera']['focal_point']),atol=1e-12)
+        for key in ('view_up','view_angle','parallel_scale','parallel_projection','zoom_out_limit'):
+            self.assertEqual(after['camera'][key],before['camera'][key])
         for key in ['beam_x','beam_y','angle','contrast_low','contrast_high']:self.assertEqual(after[key],before[key])
         self.assertIs(app.signal,signal,'Display cropping must not recompute scattering')
         self.assertFalse(app.state.render_loading)
         app.receive_pose(dict(beam_x=400,beam_y=100,angle=30),True)
-        expected=scattering(app.signal_volume,app._synthetic_source.spacing,app._synthetic_source.origin,.4,.1,30)
-        for actual,want in zip(app.signal,expected):np.testing.assert_allclose(actual,want)
+        self.assertEqual(app.signal[2].size,0)
 
     def test_cancel_and_stale_input_keep_the_loaded_array(self):
         app=self.app();source=app.render_source
@@ -171,8 +181,14 @@ class CropChecks(unittest.TestCase):
     def test_crop_and_level_round_trip_in_project_sample(self):
         app=self.app()
         with tempfile.TemporaryDirectory() as folder:
+            from pathlib import Path
+            input_path=Path(folder)/'test.tiff'
+            tifffile.imwrite(input_path,np.zeros((160,160,160),dtype=np.uint16),photometric='minisblack')
+            output=Path(folder)/'test.ome.zarr'
+            import_tiff(input_path,output,[20,20,20])
+            app.set_volume_data(VolumeSource(output).preview(64))
             app.project=Project.create(folder,'Crops')
-            identifier=app.project.add_sample(None,'Seed')
+            identifier=app.project.add_sample(output,'Test sample')
             app.active_sample_id=identifier
             context=app.state.sample_context
             async def select():
@@ -183,7 +199,7 @@ class CropChecks(unittest.TestCase):
             saved=loaded.sample(identifier)['view']['volume']
             self.assertEqual(saved,dict(crop=[[10,90],[20,100],[30,110]],level=0))
             app.project=loaded
-            asyncio.run(app.load_sample(None,loaded,identifier,loaded.sample(identifier)))
+            asyncio.run(app.load_sample(output,loaded,identifier,loaded.sample(identifier)))
             self.assertEqual(app.volume_view_state(),saved)
             self.assertEqual(app.volume.shape,(80,80,80))
         for spec in [dict(crop=[[0,0],[0,1],[0,1]],level=0),dict(crop=[[0,1]]*3,level=-1)]:

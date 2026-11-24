@@ -53,38 +53,35 @@ module.exports = async function checkCoordinates() {
   sizes.sample_voxel_x=2;linked.change('sample','x','2');
   assert.deepEqual([sizes.sample_voxel_x,sizes.sample_voxel_y,sizes.sample_voxel_z],[2,3,8],'An invalid edit preserves the last valid ratio');
 
-  const values={beam_x:250,beam_y:0,angle:35,draft_x:250,draft_y:0,draft_angle:0,rotation_playing:false};
-  const listeners=[], submitted=[], handlers={};
+  const values={beam_x:250,beam_y:0,angle:35,camera_angle:35,draft_camera_angle:0,rotation_playing:false};
+  const listeners=[],submitted=[],handlers={};let controls;
   const state={get:key=>values[key],addListener:fn=>listeners.push(fn),set(key,value){
-    if(values[key] === value)return;
-    values[key]=value;
-    listeners.forEach(fn=>fn({type:'dirty-state',keys:[key]}));
+    if(values[key]===value)return;
+    values[key]=value;listeners.forEach(fn=>fn({type:'dirty-state',keys:[key]}));
   }};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/tomoswaxs/assets/coordinates.js'),'utf8'),{
-    window:{trame:{state},nimUpdates:{submit:(kind,value)=>submitted.push([kind,value])}},
+    window:controls={trame:{state},nimUpdates:{submit:(kind,value)=>submitted.push([kind,value])}},
     document:{addEventListener:(name,fn)=>{handlers[name]=fn;},hidden:false},
     performance:{now:()=>0},setTimeout:()=>1,clearTimeout(){},console,
   });
-  assert.equal(values.draft_angle,35,'Initial drafts follow the current server pose');
-  assert.equal(submitted.length,0,'Initial sync must not submit a pose');
-  state.set('draft_x','1000');
-  state.set('beam_x',500);
-  assert.equal(values.draft_x,'1000','An old acknowledgement must not overwrite newer input');
-  state.set('beam_x',1000);
-  assert.equal(values.draft_x,1000);
-  state.set('draft_angle',185);
-  assert.equal(values.draft_angle,-175);
-  assert.equal(submitted.at(-1)[1].values.angle,-175);
-  state.set('angle',170);
-  assert.equal(values.draft_angle,-175);
-  state.set('angle',-175);
-  state.set('draft_x','0');
-  state.set('draft_x','');
-  state.set('beam_x',0);
-  assert.equal(values.draft_x,'','Preserve an in-progress numeric edit');
+  assert.equal(values.draft_camera_angle,35);
+  assert.equal(submitted.length,0);
+  state.set('draft_camera_angle',185);
+  assert.equal(values.draft_camera_angle,-175);
+  assert.equal(submitted.at(-1)[0],'camera');
+  assert.equal(submitted.at(-1)[1].angle,-175);
+  assert.equal(values.angle,35,'Camera drafts leave the sample angle unchanged');
+  state.set('camera_angle',170);
+  assert.equal(values.draft_camera_angle,-175,'Old acknowledgements preserve newer camera drafts');
+  state.set('camera_angle',-175);assert.equal(values.draft_camera_angle,-175);
+  const before=submitted.length;
+  state.set('beam_x',700);state.set('angle',90);
+  assert.equal(values.draft_x,700);assert.equal(values.draft_angle,90);
+  assert.equal(submitted.length,before,'Measurement poses do not submit camera or sample changes');
+  state.set('draft_camera_angle','');state.set('camera_angle',0);
+  assert.equal(values.draft_camera_angle,'');
   state.set('sample_context','next-sample');
-  assert.equal(values.draft_x,0,'A new sample discards unfinished drafts from the previous sample');
-  assert.equal(handlers.keydown,undefined);
+  assert.equal(values.draft_camera_angle,0);
 
   let sent=0, queueClock=0, requestedFrequency=2, retry;
   const paced=createLatestUpdates(async()=>{sent++;}, {
@@ -109,6 +106,17 @@ module.exports = async function checkCoordinates() {
   assert.equal(values.rotation_playing,true);
   handlers.click(clickTarget('#saved-views'));
   assert.equal(values.rotation_playing,false,'Opening saved views pauses playback before capture or recall');
+  handlers.click(clickTarget('#rotation-toggle'));
+  state.set('draft_camera_angle',70);
+  const beforeBeam=submitted.length;
+  controls.nimCoordinates.beamView();
+  assert.equal(values.rotation_playing,false,'Beam view stops camera animation');
+  assert.equal(submitted.length,beforeBeam+1,'Stopping for Beam view does not send another old angle');
+  assert.equal(submitted.at(-1)[1].action,'beam-view');
+  state.set('camera_angle',0);
+  assert.equal(values.draft_camera_angle,0,'Beam view clears dirty angle drafts');
+  handlers.focusout({target:{matches:()=>true}});
+  assert.equal(submitted.length,beforeBeam+1,'Leaving the angle control cannot restore the old angle');
 
   const calls=[], resolvers=[];
   const queue=createLatestUpdates((kind,value)=>{
@@ -140,5 +148,18 @@ module.exports = async function checkCoordinates() {
   assert.deepEqual(tagged[1],{kind:'pose',value:{values:{angle:37},finished:true},context:'second'},
     'Pending values must never merge across sample contexts');
   complete.shift()();await new Promise(setImmediate);
+
+  const cameraCalls=[],cameraDone=[];
+  const cameraQueue=createLatestUpdates((kind,value)=>{
+    cameraCalls.push(value);return new Promise(resolve=>cameraDone.push(resolve));
+  },{now:()=>1000,setTimer:()=>1,clearTimer(){}});
+  cameraQueue.submit('camera',{angle:10});
+  cameraQueue.submit('camera',{angle:20});
+  cameraQueue.submit('camera',{action:'beam-view'},true);
+  cameraDone.shift()();await new Promise(setImmediate);
+  assert.deepEqual(cameraCalls,[{angle:10},{action:'beam-view'}],
+    'Beam view replaces queued angles and runs after the in-flight request');
+  cameraDone.shift()();await new Promise(setImmediate);
+  assert.equal(cameraCalls.length,2,'Beam view runs only once');
 };
 if(require.main===module)module.exports().then(()=>console.log('Coordinate checks passed.')).catch(e=>{console.error(e);process.exitCode=1;});

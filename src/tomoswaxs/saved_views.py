@@ -20,6 +20,8 @@ class SavedViews:
         return deepcopy(self._standalone_views.get(key,[]))
 
     def current_saved_views(self):
+        if not self.state.has_sample:
+            return []
         if self.project and self.active_sample_id:
             return self.project.sample(self.active_sample_id).get('saved_views',[])
         return self.standalone_saved_views(self.volume_source.path if self.volume_source else None)
@@ -152,7 +154,6 @@ class SavedViews:
                 self.state.sample_context=uuid.uuid4().hex
                 self.dragging_beam=self.dragging_controls=False
                 self.restore_view(view)
-                self.last_signal_key=None
             finally:
                 self._applying_pose=False
             self.state.saved_view_error=''

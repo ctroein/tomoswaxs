@@ -9,7 +9,6 @@ import fcntl
 import os
 import shutil
 import threading
-import time
 import uuid
 
 import dask
@@ -282,7 +281,7 @@ class VolumeSource:
             options.append(dict(level=i,shape=shape,bytes=size,spacing=tuple(map(float,spacing)),fits=size<=budget))
         return options
 
-    def preview(self, budget_mib=DEFAULT_PREVIEW_MIB, cancel=None, crop=None, level='auto'):
+    def preview(self, budget_mib=DEFAULT_PREVIEW_MIB, cancel=None, crop=None, level='auto', *, cache=None, contrast=None):
         crop=self.crop_bounds(crop)
         options=self.level_options(budget_mib,crop)
         requested=level
@@ -302,31 +301,101 @@ class VolumeSource:
             def _pretask(self,key,graph,state):
                 if cancel is not None and cancel.is_set():
                     raise ImportCancelled('Load cancelled.')
-        with CheckCancel():
-            values = image.data[selection].compute(scheduler='single-threaded')
+        if cancel is not None and cancel.is_set():raise ImportCancelled('Load cancelled.')
+        if cache is not None:
+            values=cache.read(image.data,selection,(id(self),level),cancel,float(budget_mib)*1024**2)
+        else:
+            with CheckCancel():
+                values = image.data[selection].compute(scheduler='single-threaded')
         values = np.ascontiguousarray(values, dtype=values.dtype.newbyteorder('='))
-        finite = values.ravel()[::max(1,values.size//1_000_000)]
-        finite = finite[np.isfinite(finite)]
-        if not finite.size:
-            raise ValueError('The preview contains no finite intensities.')
-        low, high = map(float,np.percentile(finite,[50,99.5]))
-        if high <= low:
-            low,high = float(finite.min()),float(finite.max())
-        if high <= low:
-            high = low+1
+        if contrast is None:
+            finite = values.ravel()[::max(1,values.size//1_000_000)]
+            finite = finite[np.isfinite(finite)]
+            if not finite.size:
+                raise ValueError('The preview contains no finite intensities.')
+            low, high = map(float,np.percentile(finite,[50,99.5]))
+            if high <= low:
+                low,high = float(finite.min()),float(finite.max())
+            if high <= low:
+                high = low+1
+        else:
+            low,high=contrast
+            if not np.isfinite(values.ravel()[::max(1,values.size//1_000_000)]).any():
+                raise ValueError('The preview contains no finite intensities.')
         scale,origin = self.geometry(image)
         origin=origin+np.asarray([s.start for s in selection][::-1])*scale
         return Volume(values,scale*stride,origin,(low,high),self.path,self,level,stride,crop,selection,requested)
 
 
+def hdf5_volumes(path):
+    import h5py
+    entries=[]
+    with h5py.File(path,'r') as handle:
+        def visit(name,obj):
+            if isinstance(obj,h5py.Dataset) and obj.ndim==3 and min(obj.shape)>=2 and obj.dtype.kind in 'uif':
+                entries.append(dict(value='/'+name,label=f'/{name} · {obj.shape} · {obj.dtype}'))
+        handle.visititems(visit)
+    return entries
+
+
+def hdf5_spacing(path):
+    import h5py
+    with h5py.File(path,'r') as handle:
+        if '/metadata/pixel_size_cm' in handle:
+            return spacing_xyz(float(handle['/metadata/pixel_size_cm'][()])*10000)
+    return None
+
+
+def hdf5_axes(path):
+    import h5py
+    with h5py.File(path,'r') as handle:
+        if '/metadata/reconstructed_vol_dimensions_Z(number-of-slices)_X(width)_Y(height)' in handle:
+            return 'zxy'
+    return 'zyx'
+
+
+class Hdf5Blocks:
+    ndim=3
+
+    def __init__(self,path,dataset,axes='zyx'):
+        import h5py
+        self.path=Path(path).expanduser().resolve()
+        self.dataset=dataset
+        if sorted(axes)!=list('xyz'):
+            raise ValueError('Select the stored order of X, Y and Z.')
+        self.order=tuple(axes.index(axis) for axis in 'zyx')
+        with h5py.File(self.path,'r') as handle:
+            ds=handle[dataset]
+            if not isinstance(ds,h5py.Dataset) or ds.ndim!=3 or min(ds.shape)<2 or ds.dtype.kind not in 'uif':
+                raise ValueError('Select a numeric scalar 3D HDF5 dataset.')
+            if ds.chunks and math.prod(ds.chunks)*ds.dtype.itemsize>256*1024**2:
+                raise ValueError("HDF5 chunks exceed 256 MiB; rechunk the source before importing.")
+            self.shape=tuple(ds.shape[i] for i in self.order)
+            self.dtype=np.dtype(ds.dtype)
+
+    def __getitem__(self,key):
+        import h5py
+        stored=[None]*3
+        for i,axis in enumerate(self.order):stored[axis]=key[i]
+        with h5py.File(self.path,'r') as handle:
+            return np.ascontiguousarray(handle[self.dataset][tuple(stored)].transpose(self.order))
+
+
+def import_hdf5(path,destination,dataset,voxel_size_um=None,cancel=None,progress=None,axes='zyx'):
+    return _import_volume(path,destination,voxel_size_um,cancel,progress,
+        Hdf5Blocks(path,dataset,axes),hdf5_spacing(path),dict(source_format='hdf5',source_dataset=dataset,source_axes=axes))
+
+
 def import_tiff(path, destination, voxel_size_um=None, cancel=None, progress=None):
+    return _import_volume(path,destination,voxel_size_um,cancel,progress,TiffBlocks(path),tiff_spacing(path),dict(source_format='tiff'))
+
+
+def _import_volume(path,destination,voxel_size_um,cancel,progress,blocks,source_spacing,extra):
     """Write OME-Zarr 0.5 atomically; level zero preserves source scalar values."""
     path, destination = Path(path).expanduser().resolve(), Path(destination).expanduser().resolve()
     if destination.exists():
         raise FileExistsError(f'Destination already exists: {destination}')
-    blocks = TiffBlocks(path)
     supplied = voxel_size_um is not None
-    source_spacing = tiff_spacing(path)
     spacing = spacing_xyz(voxel_size_um if supplied else source_spacing)
     cancel = cancel or threading.Event()
     progress = progress or (lambda text: None)
@@ -336,7 +405,7 @@ def import_tiff(path, destination, voxel_size_um=None, cancel=None, progress=Non
     staging = destination.with_name('.'+destination.name+'.importing-'+uuid.uuid4().hex)
     try:
         data = da.from_array(blocks,chunks=(CHUNK,)*3,asarray=False,fancy=False,
-                             name='tiff-'+uuid.uuid4().hex)
+                             name='import-'+uuid.uuid4().hex)
         scale = dict(zip('xyz',map(float,spacing)))
         translation = dict(zip('xyz',-(np.array(blocks.shape[::-1])-1)*spacing/2))
         image = ngff.to_ngff_image(data,dims=('z','y','x'),scale=scale,
@@ -351,29 +420,31 @@ def import_tiff(path, destination, voxel_size_um=None, cancel=None, progress=Non
         multiscales = ngff.to_multiscales(image,scale_factors=factors,
                     method=ngff.Methods.DASK_BIN_SHRINK,chunks=CHUNK,cache=False)
         multiscales.root_attributes = {'nim_import':dict(source=str(path),
-            source_size=path.stat().st_size,source_mtime_ns=path.stat().st_mtime_ns,
+            **extra,source_size=path.stat().st_size,source_mtime_ns=path.stat().st_mtime_ns,
             voxel_spacing_xyz_um=spacing.tolist(),spacing_origin='user' if supplied else 'metadata',
             source_spacing_available=source_spacing is not None,
             downsampling='block mean (DASK_BIN_SHRINK)',ngff_zarr_version=package_version('ngff-zarr'))}
         class Monitor(Callback):
-            def _start(self, graph):
-                self.total,self.done = max(1,len(graph)),0
-                self.last_report = 0.
+            def add_multiscales_task(self,description,scales):
+                self.levels=scales
+
+            def update_multiscales_task_completed(self,level):
+                # ngff-zarr calls this when beginning each level.
+                detail=' (full resolution)' if level==1 else ''
+                progress(f'Writing resolution level {level} of {self.levels}{detail}')
+
             def _pretask(self,key,graph,state):
                 if cancel.is_set():
                     raise ImportCancelled('Import cancelled.')
-            def _posttask(self,key,result,graph,state,worker_id):
-                self.done += 1
-                now = time.monotonic()
-                if self.done == 1 or (self.done % 32 == 0 and now-self.last_report >= .25):
-                    self.last_report = now
-                    progress(f'Writing pyramid: {self.done}/{self.total} tasks in current level')
-        progress('Converting TIFF to OME-Zarr…')
-        with dask.config.set(scheduler='single-threaded'), Monitor():
-            ngff.to_ome_zarr(staging,multiscales,version='0.5',overwrite=False,scale_strategy='exact')
+
+        progress('Preparing OME-Zarr conversion…')
+        monitor=Monitor()
+        with dask.config.set(scheduler='single-threaded'), monitor:
+            ngff.to_ome_zarr(staging,multiscales,version='0.5',overwrite=False,scale_strategy='exact',progress=monitor)
         if cancel.is_set():
             raise ImportCancelled('Import cancelled.')
         # Validate metadata/readability before making the result visible.
+        progress('Validating converted image…')
         VolumeSource(staging, _import_validation=True)
         if destination.exists():
             raise FileExistsError(f'Destination appeared during import: {destination}')
@@ -385,26 +456,44 @@ def import_tiff(path, destination, voxel_size_um=None, cancel=None, progress=Non
             shutil.rmtree(staging)
 
 
-def directory_entries(directory,projects=False,directories_only=False):
-    directory = Path(directory).expanduser().resolve()
+def logical_path(path):
+    """Absolute navigation path retaining symlink components, as in pwd -L."""
+    import os
+    return Path(os.path.abspath(Path(path).expanduser()))
+
+
+def directory_entries(directory,projects=False,directories_only=False,scattering=False,all_files=False,name_filter='*'):
+    from fnmatch import fnmatchcase
+    directory = logical_path(directory)
     entries=[]
     for path in sorted(directory.iterdir(),key=lambda p:(not p.is_dir(),p.name.lower())):
         if path.name.startswith('.'):
             continue
         is_directory = path.is_dir()
-        is_image = is_ome_zarr(path)
+        try:
+            is_image = is_ome_zarr(path)
+        except PermissionError:
+            is_image = False  # Keep the directory available; opening it reports access errors.
+        if not is_directory and not any(fnmatchcase(path.name,pattern.strip()) for pattern in (name_filter or '*').split(';') if pattern.strip()):
+            continue
         if directories_only and (not is_directory or is_image):
             continue
         if projects and path.name == 'project.json' and path.is_file():
             kind = 'NIM project'
-        elif projects and is_image:
+        elif projects and is_image and not all_files:
             continue
         elif is_image:
             kind = 'OME-Zarr volume'
         elif is_directory:
             kind = 'Directory'
-        elif not projects and path.suffix.lower() in ('.tif','.tiff'):
+        elif scattering and path.name.endswith('_eiger_integrated.h5'):
+            kind = 'Integrated SAXS scan'
+        elif not projects and not scattering and path.suffix.lower() in ('.tif','.tiff'):
             kind = 'TIFF volume'
+        elif not projects and not scattering and path.suffix.lower() in ('.h5','.hdf5'):
+            kind = 'HDF5 volume (import)'
+        elif all_files and not directories_only:
+            kind = ('HDF5 file' if path.suffix.lower() in ('.h5','.hdf5') else 'File')+' · unsupported by this operation'
         else:
             continue
         try:

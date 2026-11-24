@@ -1,11 +1,12 @@
 /* Dockview layout and panel lifecycle stay local to this browser. */
 (() => {
-  const panels={volume:{title:'µCT volume',template:'nim_volume'},iq:{title:'SAXS 1D · synthetic',template:'nim_iq'},cake:{title:'SAXS cake · synthetic',template:'nim_cake'},crop:{title:'Crop',template:'nim_crop'},resolution:{title:'Resolution',template:'nim_resolution'}};
+  const panels={volume:{title:'µCT volume',template:'nim_volume'},iq:{title:'SAXS 1D',template:'nim_iq'},cake:{title:'SAXS cake',template:'nim_cake'},crop:{title:'Crop and resolution',template:'nim_crop'},saxs:{title:'SAXS measurements',template:'nim_saxs'}};
+  const legacyPanels={...panels,resolution:{title:'Resolution',template:'nim_resolution'}};
   function validLayout(layout) {
     if (!layout || !['HORIZONTAL','VERTICAL'].includes(layout.grid?.orientation) ||
         !layout.panels || typeof layout.panels !== 'object') return false;
-    if (!Object.entries(layout.panels).every(([id,p])=>panels[id] && p?.id === id &&
-        p.contentComponent === 'DockPanel' && p.params?.templateName === panels[id].template)) return false;
+    if (!Object.entries(layout.panels).every(([id,p])=>legacyPanels[id] && p?.id === id &&
+        p.contentComponent === 'DockPanel' && p.params?.templateName === legacyPanels[id].template)) return false;
     function tree(node,depth=0) {
       if (!node || depth>16) return false;
       if (node.type === 'branch') return Array.isArray(node.data) && node.data.every(child=>tree(child,depth+1));
@@ -23,15 +24,17 @@
     const leaf=(id,group,size)=>({type:'leaf',data:{views:[id],activeView:id,id:group},size});
     return {grid:{width:w,height:h,orientation:'HORIZONTAL',root:{type:'branch',size:h,data:[
       {type:'branch',size:main,data:[leaf('volume','1',top),{type:'branch',size:h-top,data:[leaf('iq','2',left),leaf('cake','3',main-left)]}]},
-      {type:'leaf',size:side,data:{views:['crop','resolution'],activeView:'crop',id:'controls'}}
-    ]}},nimControlsVersion:1,panels:Object.fromEntries(Object.entries(panels).map(([id,p])=>[id,{id,contentComponent:'DockPanel',params:{templateName:p.template},title:p.title,minimumHeight:100,minimumWidth:['crop','resolution'].includes(id)?260:180}])),activeGroup:'1'};
+      {type:'branch',size:side,data:[leaf('crop','crop-controls',h*.64),leaf('saxs','saxs-controls',h*.36)]}
+    ]}},nimControlsVersion:3,panels:Object.fromEntries(Object.entries(panels).map(([id,p])=>[id,{id,contentComponent:'DockPanel',params:{templateName:p.template},title:p.title,minimumHeight:100,minimumWidth:['crop','saxs'].includes(id)?260:180}])),activeGroup:'1'};
   }
   // Persist a layout that reopens every panel in the main document. Never
   // replay window URLs or attempt window.open during a browser refresh.
   function mainWindowLayout(layout) {
     const result=JSON.parse(JSON.stringify(layout));
     delete result.popoutGroups;
-    result.nimControlsVersion=1;
+    mergeVolumeControls(result);
+    for (const [id,panel] of Object.entries(result.panels)) panel.title=panels[id].title;
+    result.nimControlsVersion=3;
     const present=new Set();
     function visit(node) {
       if(node.type === 'leaf') node.data.views.forEach(id=>present.add(id));
@@ -60,7 +63,67 @@
     }
     return result;
   }
-  if(typeof module !== 'undefined' && module.exports) {module.exports={validLayout,defaultLayout,mainWindowLayout};return;}
+  function mergeVolumeControls(layout) {
+    const hadCrop=!!layout.panels.crop;
+    if(layout.panels.resolution && !hadCrop) {
+      layout.panels.crop={...layout.panels.resolution,id:'crop',title:panels.crop.title,params:{templateName:'nim_crop'}};
+    }
+    delete layout.panels.resolution;
+    function prune(node) {
+      if(node.type==='leaf') {
+        node.data.views=node.data.views.flatMap(id=>id==='resolution' ? (hadCrop ? [] : ['crop']) : [id]);
+        if(!node.data.views.length)return null;
+        if(!node.data.views.includes(node.data.activeView))node.data.activeView=node.data.views[0];
+      } else {
+        const removed=node.data.filter(n=>n.type==='leaf' && n.data.views.length===1 && n.data.views[0]==='resolution' && hadCrop);
+        node.data=node.data.map(prune).filter(Boolean);
+        if(!node.data.length)return null;
+        const crop=node.data.find(n=>n.type==='leaf' && n.data.views.includes('crop'));
+        if(crop)crop.size=(crop.size || 0)+removed.reduce((n,c)=>n+(c.size || 0),0);
+      }
+      return node;
+    }
+    layout.grid.root=prune(layout.grid.root) || {type:'branch',data:[]};
+    if(layout.floatingGroups)layout.floatingGroups=layout.floatingGroups.filter(group=>!!prune(group.grid?.root || {type:'leaf',data:group.data}));
+    if(layout.panels.crop)layout.panels.crop.title=panels.crop.title;
+    const groups=[];
+    function visit(node) {if(node.type==='leaf')groups.push(node.data.id);else node.data.forEach(visit);}
+    visit(layout.grid.root);
+    if(!groups.includes(layout.activeGroup))layout.activeGroup=groups[0];
+    layout.nimControlsVersion=3;
+    return layout;
+  }
+  function placeSaxsBelowResolution(layout) {
+    const defaults=defaultLayout(layout.grid.width,layout.grid.height);
+    layout.panels.saxs=defaults.panels.saxs;
+    function prune(node) {
+      if(node.type==='leaf') {
+        node.data.views=node.data.views.filter(id=>id!=='saxs');
+        if(!node.data.views.length)return null;
+        if(!node.data.views.includes(node.data.activeView))node.data.activeView=node.data.views[0];
+      } else {node.data=node.data.map(prune).filter(Boolean);if(!node.data.length)return null;}
+      return node;
+    }
+    layout.grid.root=prune(layout.grid.root) || {type:'branch',data:[]};
+    layout.floatingGroups=(layout.floatingGroups || []).filter(group=>!!prune(group.grid?.root || {type:'leaf',data:group.data}));
+    const added={type:'leaf',size:Math.max(180,layout.grid.height*.3),data:{id:'saxs-controls',views:['saxs'],activeView:'saxs'}};
+    function insert(node) {
+      if(node.type!=='branch')return false;
+      for(let i=0;i<node.data.length;i++) {
+        const child=node.data[i];
+        if(child.type==='leaf' && (child.data.views.includes('resolution') || child.data.views.includes('crop'))) {node.data.splice(i+1,0,added);return true;}
+        if(insert(child))return true;
+      }
+      return false;
+    }
+    if(!insert(layout.grid.root)) {
+      if(layout.grid.root.type!=='branch')layout.grid.root={type:'branch',data:[layout.grid.root]};
+      layout.grid.root.data.push(added);
+    }
+    layout.nimControlsVersion=2;
+    return layout;
+  }
+  if(typeof module !== 'undefined' && module.exports) {module.exports={validLayout,defaultLayout,mainWindowLayout,placeSaxsBelowResolution,mergeVolumeControls};return;}
   let dock,api;
   const tabs=new WeakMap(),popouts=new Map(),disposables=[];
   const state=()=>window.trame.state;
@@ -128,17 +191,26 @@
       // Upgrade a saved three-panel workspace once; later closed controls stay closed.
       if(validLayout(layout) && !layout.nimControlsVersion) {
         const defaults=defaultLayout(1200,600);
-        const added=['crop','resolution'].filter(id=>!next.panels[id]);
+        const added=['crop'].filter(id=>!next.panels[id]);
         for(const id of added) next.panels[id]=defaults.panels[id];
         if(added.length) {
           if(next.grid.root.type!=='branch') next.grid.root={type:'branch',size:next.grid.height,data:[next.grid.root]};
           next.grid.root.data.push({type:'leaf',size:300,data:{views:added,activeView:added[0],id:'nim-controls-upgrade'}});
         }
       }
-      dock.restoreLayout(next);syncTabs(next);
+      if(validLayout(layout) && (layout.nimControlsVersion || 0)<2)placeSaxsBelowResolution(next);
+      mergeVolumeControls(next);dock.restoreLayout(next);syncTabs(next);
     }
   }
   window.nimWorkspace={validLayout,
+    viewHelp(event) {
+      const button=event.currentTarget, popup=button.nextElementSibling;
+      popup.togglePopover();
+      if(!popup.matches(':popover-open')) return;
+      const rect=button.getBoundingClientRect(), win=button.ownerDocument.defaultView;
+      popup.style.left=`${Math.max(8,Math.min(rect.left,win.innerWidth-popup.offsetWidth-8))}px`;
+      popup.style.top=`${Math.max(8,Math.min(rect.bottom+6,win.innerHeight-popup.offsetHeight-8))}px`;
+    },
     mountTab(element,params) {
       element.closest('[role="tab"]')?.setAttribute('aria-label',params.api.title);
       bindApi(params.containerApi);
@@ -197,7 +269,7 @@
     changed(layout) { if(validLayout(layout)) { window.nimWorkspace.currentLayout=layout; syncTabs(layout); syncLive(); window.nimPreferences.updateLayout(mainWindowLayout(layout)); } },
     visibility() { requestAnimationFrame(()=>window.dispatchEvent(new Event('resize'))); },
     restore,
-    open(id) { if(!dock || !panels[id]) return; const p=panels[id];dock.addPanel(id,p.title,p.template,{minimumHeight:100,minimumWidth:['crop','resolution'].includes(id)?260:180});dock.activePanel(id); },
+    open(id) { if(!dock || !panels[id]) return; const p=panels[id];dock.addPanel(id,p.title,p.template,{minimumHeight:100,minimumWidth:['crop','saxs'].includes(id)?260:180});dock.activePanel(id); },
     removed(id) { window.trame.state.set('workspace_tabs',(window.trame.state.get('workspace_tabs') || []).filter(item=>item!==id)); },
     toggle(id) {
       if(!dock || !panels[id]) return;

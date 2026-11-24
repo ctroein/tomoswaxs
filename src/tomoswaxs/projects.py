@@ -6,7 +6,7 @@ import math
 import os
 from pathlib import Path
 import re
-import tempfile
+import stat
 import uuid
 
 
@@ -31,14 +31,14 @@ def validate_view(view):
     for key in VIEW_FIELDS:
         if key in view and (type(view[key]) not in (int,float) or not math.isfinite(view[key])):
             raise ValueError(f'Invalid saved {key}.')
-    for key,low,high in [('radius_x',10,500),('radius_y',10,500),('angle',-180,180),('opacity',.05,1)]:
+    for key,low,high in [('radius_x',10,500),('radius_y',10,500),('angle',-180,180),('opacity',0,1)]:
         if key in view and not low <= view[key] <= high:
             raise ValueError(f'Saved {key} is outside the supported range.')
     if 'contrast_low' in view and 'contrast_high' in view and view['contrast_low'] >= view['contrast_high']:
         raise ValueError('Invalid saved contrast range.')
     volume=view.get('volume')
     if volume is not None:
-        if not isinstance(volume,dict) or set(volume)!={'crop','level'}:
+        if not isinstance(volume,dict) or not {'crop','level'}<=set(volume) or set(volume)-{'crop','level','auto_detail'}:
             raise ValueError('Invalid saved volume selection.')
         crop=volume['crop'];level=volume['level']
         if (not isinstance(crop,list) or len(crop)!=3 or any(not isinstance(pair,list) or len(pair)!=2 or
@@ -46,6 +46,18 @@ def validate_view(view):
             raise ValueError('Invalid saved volume crop.')
         if level!='auto' and (type(level) is not int or level<0):
             raise ValueError('Invalid saved volume level.')
+        detail=volume.get('auto_detail')
+        if detail is not None:
+            if (not isinstance(detail,dict) or set(detail)!={'enabled','depth','frozen_planes'} or
+                    type(detail['enabled']) is not bool or type(detail['depth']) not in (int,float) or
+                    not math.isfinite(detail['depth']) or not 0<=detail['depth']<=100):
+                raise ValueError('Invalid saved auto-detail settings.')
+            planes=detail['frozen_planes']
+            if planes is not None and (not isinstance(planes,list) or len(planes)!=6 or
+                    any(not isinstance(p,list) or len(p)!=4 or
+                        any(type(v) not in (int,float) or not math.isfinite(v) for v in p) or
+                        sum(v*v for v in p[:3])<1e-12 for p in planes)):
+                raise ValueError('Invalid saved frozen region.')
     camera = view.get('camera')
     if camera is not None:
         if not isinstance(camera,dict):
@@ -127,7 +139,7 @@ class Project:
             ct=sample['datasets'].get('ct',{})
             if not isinstance(ct,dict):
                 raise ValueError('Invalid sample CT dataset reference.')
-            if ct.get('kind')!='synthetic' and (ct.get('format')!='ome-zarr' or not isinstance(ct.get('path'),str) or not ct['path']):
+            if ct.get('kind') not in ('synthetic','none') and (ct.get('format')!='ome-zarr' or not isinstance(ct.get('path'),str) or not ct['path']):
                 raise ValueError('Invalid sample CT dataset reference.')
             if sample.get('settings',{}).get('rotation_axis','y') not in ('x','y','z'):
                 raise ValueError('Invalid sample axis assignment.')
@@ -157,8 +169,18 @@ class Project:
         raw=(json.dumps(document,indent=2,allow_nan=False)+'\n').encode()
         temporary=None
         try:
-            with tempfile.NamedTemporaryFile(dir=self.root,prefix='.project-',delete=False) as stream:
-                temporary=Path(stream.name)
+            previous=None if create else self.path.stat()
+            candidate=self.root/f'.project-{uuid.uuid4().hex}'
+            # Normal creation honours the user's umask and directory default ACL.
+            # mkstemp/NamedTemporaryFile force 0600, which breaks shared projects.
+            descriptor=os.open(candidate,os.O_WRONLY|os.O_CREAT|os.O_EXCL,
+                               stat.S_IMODE(previous.st_mode) if previous else 0o666)
+            temporary=candidate
+            with os.fdopen(descriptor,'wb') as stream:
+                if previous is not None:
+                    if os.fstat(stream.fileno()).st_gid!=previous.st_gid:
+                        os.fchown(stream.fileno(),-1,previous.st_gid)
+                    os.fchmod(stream.fileno(),stat.S_IMODE(previous.st_mode))
                 stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -197,7 +219,7 @@ class Project:
 
     def dataset_path(self,sample):
         ct=sample['datasets']['ct']
-        if ct.get('kind')=='synthetic':
+        if ct.get('kind') in ('synthetic','none'):
             return None
         return (self.root/ct['path']).resolve()
 
@@ -211,10 +233,18 @@ class Project:
 
     def add_sample(self,path,name,axis='y',view=None,identifier=None,saved_views=None):
         identifier=identifier or uuid.uuid4().hex
-        ct={'kind':'synthetic'} if path is None else {'format':'ome-zarr','path':self.reference(path)}
-        sample=dict(id=identifier,name=name.strip(),datasets=dict(ct=ct,scattering={'kind':'synthetic'}),
+        ct={'kind':'none'} if path is None else {'format':'ome-zarr','path':self.reference(path)}
+        sample=dict(id=identifier,name=name.strip(),datasets=dict(ct=ct,scattering={'kind':'none'}),
                     settings={'rotation_axis':axis},view=view or {})
         if saved_views:
             sample['saved_views']=deepcopy(saved_views)
         self.change(samples=[*self.document['samples'],sample],active_sample_id=identifier)
         return identifier
+
+    def remove_sample(self,identifier):
+        self.sample(identifier)  # Reject stale identifiers before changing anything.
+        samples=[sample for sample in self.document['samples'] if sample['id']!=identifier]
+        active=self.document.get('active_sample_id')
+        if active==identifier:
+            active=samples[0]['id'] if samples else None
+        self.change(samples=samples,active_sample_id=active)

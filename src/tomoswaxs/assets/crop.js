@@ -24,7 +24,36 @@
     const spec=selection();
     if(spec) {state.set('crop_notice','');window.nimUpdates.submit('volume',spec,finished);}
   }
-  window.nimCrop={submit,
+  function display(axis,index,units=state.get('crop_units')) {
+    if(index === '' || index == null)return '';
+    const i='xyz'.indexOf(axis);
+    const value=units==='um' ? state.get('crop_origin_um')[i]+Number(index)*state.get('crop_spacing_um')[i] : Number(index);
+    return Number(value.toPrecision(12));
+  }
+  window.nimCrop={submit,display,
+    detail(finished=false,enabled=null,depth=null) {
+      if(enabled!==null)state.set('detail_enabled',!!enabled);
+      if(depth!==null)state.set('detail_depth',Number(depth));
+      window.nimUpdates.submit('detail',{enabled:!!state.get('detail_enabled'),depth:Number(state.get('detail_depth'))},finished);
+    },
+    freeze() {
+      window.nimUpdates.submit('detail',{enabled:!!state.get('detail_enabled'),depth:Number(state.get('detail_depth')),
+        freeze:!state.get('detail_frozen')},true);
+    },
+    input(axis,side,event) {
+      if(state.get('crop_units')!=='um')this.edit(axis,side,event.target.value);
+    },
+    commit(axis,side,event) {
+      this.editDisplay(axis,side,event.target.value);
+      event.target.value=display(axis,state.get(`crop_draft_${axis}`)[side]);
+    },
+    editDisplay(axis,side,raw) {
+      const i='xyz'.indexOf(axis);
+      const index=raw==='' ? '' : state.get('crop_units')==='um'
+        ? Math.round((Number(raw)-state.get('crop_origin_um')[i])/state.get('crop_spacing_um')[i]) : Number(raw);
+      const key=`crop_draft_${axis}`;
+      state.set(key,{...state.get(key),[side]:index});submit(true);
+    },
     limit(value) {state.set('volume_preview_mib',value==='' ? '' : Number(value));submit();},
     edit(axis,side,value) {
       const key=`crop_draft_${axis}`;

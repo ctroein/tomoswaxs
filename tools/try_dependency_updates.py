@@ -127,9 +127,18 @@ def check_environment(python, source, artifacts, port):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(('127.0.0.1', port))
     url = f'http://127.0.0.1:{port}'
+    # Browser checks exercise a loaded sample; production startup is empty.
+    fixture=artifacts/'browser-fixture.ome.zarr'
+    run([str(python),'-c',
+         'from pathlib import Path; import numpy as np,tifffile; '
+         'from tomoswaxs.volumes import import_tiff; '
+         'p=Path("browser-fixture.tiff"); z,y,x=np.indices((40,40,40)); '
+         'tifffile.imwrite(p,np.uint16(((x-20)**2+(y-20)**2+(z-20)**2<225)*50000),photometric="minisblack"); '
+         'import_tiff(p,Path("browser-fixture.ome.zarr"),[20,20,20])'],
+        artifacts,log,env)
     with (artifacts/'server.log').open('w') as output:
         server = subprocess.Popen([str(python), '-m', 'tomoswaxs', '--server', '--port', str(port),
-                                   '--timeout', '0'], cwd=artifacts, env=env,
+                                   '--timeout', '0','--volume',str(fixture)], cwd=artifacts, env=env,
                                   stdout=output, stderr=subprocess.STDOUT)
         try:
             deadline = time.monotonic() + 60

@@ -14,3 +14,10 @@ def sample_rotation(axis='y', angle_deg=0.):
     t = np.deg2rad(angle_deg)
     rotation = np.array([[np.cos(t),0,np.sin(t)], [0,1,0], [-np.sin(t),0,np.cos(t)]])
     return rotation @ np.asarray(alignments[axis])
+
+
+def sample_transform(axis='y',angle_deg=0.):
+    """Image mm to the centred viewer frame; rotate about its central Y axis."""
+    matrix=np.eye(4)
+    matrix[:3,:3]=sample_rotation(axis,angle_deg)
+    return matrix

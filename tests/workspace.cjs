@@ -1,12 +1,35 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-const {defaultLayout,validLayout,mainWindowLayout}=require('../src/tomoswaxs/assets/workspace.js');
+const {defaultLayout,validLayout,mainWindowLayout,placeSaxsBelowResolution,mergeVolumeControls}=require('../src/tomoswaxs/assets/workspace.js');
 module.exports=function checkWorkspace(){
   const layout=defaultLayout(1200,600);
   assert.equal(validLayout(layout),true);
   assert.equal(layout.grid.root.data[0].data[0].size,396);
   assert.equal(layout.grid.root.data[0].data[1].data[0].size,420);
-  assert.deepEqual(Object.keys(layout.panels),['volume','iq','cake','crop','resolution']);
+  assert.deepEqual(Object.keys(layout.panels),['volume','iq','cake','crop','saxs']);
+  const controls=layout.grid.root.data[1];
+  assert.equal(controls.type,'branch');
+  assert.deepEqual(controls.data.map(group=>group.data.views),[['crop'],['saxs']]);
+  const older=JSON.parse(JSON.stringify(layout));older.nimControlsVersion=1;
+  older.grid.root.data[1].data.pop();older.grid.root.data[0].data[1].data[0].data.views.push('saxs');
+  placeSaxsBelowResolution(older);
+  assert.deepEqual(older.grid.root.data[1].data.map(n=>n.data.views),[['crop'],['saxs']]);
+  const legacy=JSON.parse(JSON.stringify(layout));legacy.nimControlsVersion=2;
+  legacy.panels.resolution={id:'resolution',title:'Resolution',contentComponent:'DockPanel',params:{templateName:'nim_resolution'}};
+  const side=legacy.grid.root.data[1];side.data[0].size=192;
+  side.data.splice(1,0,{type:'leaf',size:192,data:{id:'old-resolution',views:['resolution'],activeView:'resolution'}});
+  assert.equal(validLayout(legacy),true);
+  const migrated=mainWindowLayout(legacy);
+  assert.equal(validLayout(migrated),true);
+  assert.equal(migrated.panels.resolution,undefined);
+  assert.equal(migrated.grid.root.data[1].data[0].size,384);
+  assert.equal(migrated.nimControlsVersion,3);
+  const onlyResolution=JSON.parse(JSON.stringify(legacy));
+  delete onlyResolution.panels.crop;onlyResolution.grid.root.data[1].data.shift();
+  const recovered=mainWindowLayout(onlyResolution);
+  assert.equal(validLayout(recovered),true);
+  assert.equal(recovered.panels.crop.title,'Crop and resolution');
+  assert.deepEqual(recovered.grid.root.data[1].data[0].data.views,['crop']);
   assert.equal(validLayout(null),false);
   assert.equal(validLayout({grid:{},panels:{}}),false);
   const invalid=JSON.parse(JSON.stringify(layout));
@@ -48,16 +71,16 @@ module.exports=function checkWorkspace(){
     assert.ok(restored,`Workspace initializes when scripts load as ${order}`);
     assert.equal(validLayout(restored),true);
     assert.equal(values.workspace_ready,true);
-    assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','cake','crop','resolution']);
+    assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','cake','crop','saxs']);
     window.nimWorkspace.toggle('cake');
     assert.deepEqual(actions.pop(),['close','cake']);
-    assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','crop','resolution']);
+    assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','crop','saxs']);
     window.nimWorkspace.toggle('cake');
     assert.deepEqual(actions.pop(),['open','cake']);
     window.nimWorkspace.removed('iq');
-    assert.deepEqual(Array.from(values.workspace_tabs),['volume','crop','resolution','cake']);
+    assert.deepEqual(Array.from(values.workspace_tabs),['volume','crop','saxs','cake']);
     window.nimWorkspace.changed(grouped);
-    assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','cake','crop','resolution']);
+    assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','cake','crop','saxs']);
     assert.equal(document.documentElement.dataset.theme,'light');
   }
 

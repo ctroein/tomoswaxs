@@ -5,29 +5,17 @@ import numpy as np
 import vtk
 from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 from trame.app import get_server
-from tomoswaxs.app import Demo
+from sample_fixture import Demo
 from tomoswaxs.orientation import sample_rotation
-from tomoswaxs.synthetic_demo import scattering
 
 
 class OrientationChecks(unittest.TestCase):
-    def test_selected_image_axis_stays_on_lab_y_and_sampling_agrees(self):
-        class Points:
-            shape = (41,41,41)
-            def __getitem__(self,key):
-                self.indices = np.stack(key[::-1],axis=1)
-                return np.ones(len(key[0]))*65535
+    def test_selected_image_axis_stays_on_lab_y(self):
         for axis in 'xyz':
             for angle in (0,37,90,-120):
                 rotation=sample_rotation(axis,angle)
                 np.testing.assert_allclose(rotation @ np.eye(3)[:, 'xyz'.index(axis)],[0,1,0],atol=1e-12)
                 np.testing.assert_allclose(rotation.T @ rotation,np.eye(3),atol=1e-12)
-                volume=Points()
-                scattering(volume,.05,np.array([-1.,-1.,-1.]),.2,.1,angle,rotation_axis=axis)
-                world=(volume.indices*.05-1) @ rotation.T
-                self.assertGreater(len(world),0)
-                np.testing.assert_allclose(world[:,0],.2,atol=.044)
-                np.testing.assert_allclose(world[:,1],.1,atol=.044)
 
     def test_volume_occludes_rear_beam_and_transmits_it_when_transparent(self):
         app=Demo(get_server('test-beam-occlusion',client_type='vue3'))
@@ -75,16 +63,16 @@ class DemoChecks(unittest.TestCase):
     def setUpClass(cls):
         cls.app = Demo(get_server('test-demo', client_type='vue3'))
 
-    def test_cake_and_curve_share_data(self):
-        app = self.app
-        with app.state:
-            app.state.beam_x = -400
-            app.state.beam_y = 200
-            app.state.angle = 60
-        app.update_scene()
-        q, phi, cake, iq = app.signal
-        np.testing.assert_allclose(iq, cake.mean(axis=0))
-        self.assertEqual(cake.shape, (len(phi),len(q)))
+    def setUp(self):
+        self.app.signal_kind='none'
+        self.app.signal=(np.empty(0),np.empty(0),np.empty((0,0)),np.empty(0))
+        self.app.update_plots()
+
+    def test_pose_changes_leave_scattering_empty_until_loaded(self):
+        app=self.app
+        app.receive_pose(dict(beam_x=-400,beam_y=200,angle=60),True)
+        self.assertEqual(app.signal[2].size,0)
+        self.assertEqual(app.curve_figure.layout.annotations[0].text,'No SAXS data loaded')
         np.testing.assert_allclose(np.array([app.sample.GetMatrix().GetElement(i,j)
                                             for i in range(3) for j in range(3)]).reshape(3,3),
                                    sample_rotation('y',60))
@@ -98,6 +86,9 @@ class DemoChecks(unittest.TestCase):
 
     def test_plot_updates_reuse_figures_and_preserve_binary_array_values(self):
         app=self.app
+        app.signal_kind='measured'
+        app.signal=(np.array([.1,.2,.3]),np.array([1.,3.]),np.array([[1.,2.,3.],[4.,5.,6.]]),np.array([2.,3.,4.]))
+        app.update_plots()
         figures=(app.curve_figure,app.cake_figure)
         traces=(app.curve_figure.data[0],app.cake_figure.data[0])
         app.receive_pose({'angle':41},True)
@@ -119,12 +110,30 @@ class DemoChecks(unittest.TestCase):
         np.testing.assert_array_equal(decode(heat['x']),q)
         np.testing.assert_array_equal(decode(heat['y']),phi)
         np.testing.assert_array_equal(decode(heat['z']),np.log10(cake))
+        np.testing.assert_array_equal(decode(heat['customdata']),cake)
         self.assertEqual(app.state[app.cake.key]['layout']['uirevision'],'preserve-user-zoom')
         app.state.log_iq=True
         app.update_plots()
         self.assertEqual(app.state[app.curve.key]['layout']['yaxis']['type'],'log')
         app.state.log_iq=False
         app.update_plots()
+
+    def test_cake_separates_missing_zero_negative_and_positive_intensity(self):
+        app=self.app
+        app.signal_kind='measured'
+        cake=np.array([[np.nan,0.,1.],[-2.,10.,np.inf]])
+        app.signal=(np.array([.1,.2,.3]),np.array([1.,3.]),cake,np.ones(3))
+        app.update_plots()
+        positive,missing,zero,negative=app.cake_figure.data
+        np.testing.assert_allclose(positive.z,[[np.nan,np.nan,0.],[np.nan,1.,np.nan]],equal_nan=True)
+        for trace,expected in ((missing,~np.isfinite(cake)),
+                               (zero,np.isfinite(cake)&(cake==0)),
+                               (negative,np.isfinite(cake)&(cake<0))):
+            np.testing.assert_array_equal(np.isfinite(trace.z),expected)
+            self.assertTrue(trace.showlegend)
+            self.assertFalse(trace.hoverongaps)
+            self.assertFalse(trace.connectgaps)
+        np.testing.assert_array_equal(positive.customdata,cake)
 
     def test_beam_radii_do_not_change_scattering(self):
         app = self.app
@@ -162,8 +171,7 @@ class DemoChecks(unittest.TestCase):
         np.testing.assert_array_equal(app.signal[2],before)
         app.receive_beam_position(.52,.48,True,True)
         self.assertFalse(app.dragging_beam)
-        self.assertFalse(np.array_equal(app.signal[2],before))
-        np.testing.assert_allclose(app.signal[3],app.signal[2].mean(axis=0))
+        self.assertEqual(app.signal[2].size,0)
 
     def test_beam_colors_follow_source_not_camera(self):
         app = self.app
@@ -208,7 +216,7 @@ class DemoChecks(unittest.TestCase):
         np.testing.assert_array_equal(before,app.signal[2])
         app.receive_pose({},True)
         self.assertFalse(app.dragging_controls)
-        self.assertEqual(app.last_signal_key,(.3,-.2,175))
+        self.assertEqual(app.signal[2].size,0)
         app.receive_pose({'beam_x':800,'angle':float('nan')},True)
         self.assertEqual(app.state.beam_x,300,'Reject invalid batches atomically')
 

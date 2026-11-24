@@ -8,7 +8,7 @@ import uuid
 from unittest.mock import patch
 
 from trame.app import get_server
-from tomoswaxs.app import Demo
+from sample_fixture import Demo
 from tomoswaxs.projects import Project
 
 
@@ -79,7 +79,7 @@ class SavedViewChecks(unittest.TestCase):
         self.assertIn('changed',app.state.saved_view_error)
         self.assertEqual(len(app.current_saved_views()),1)
 
-    def test_project_sample_isolation_reopen_and_standalone_transfer(self):
+    def test_project_sample_isolation_reopen_and_standalone_cache(self):
         with tempfile.TemporaryDirectory() as folder:
             project=Project.create(Path(folder)/'project','Experiment')
             first=project.add_sample(None,'First');second=project.add_sample(None,'Second')
@@ -95,7 +95,7 @@ class SavedViewChecks(unittest.TestCase):
             self.assertEqual(app.current_saved_views()[0]['name'],'Second view')
             app.state.project_new_directory=str(Path(folder)/'copy');app.create_project()
             copied=Project.load(Path(folder)/'copy')
-            self.assertEqual(copied.document['samples'][0]['saved_views'][0]['name'],'Second view')
+            self.assertEqual(copied.document['samples'],[])
 
     def test_invalid_project_bookmark_preserves_manifest(self):
         app=self.app();saved=self.save(app,'View')
