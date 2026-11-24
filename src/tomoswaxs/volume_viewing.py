@@ -106,7 +106,7 @@ class VolumeViewing(AutoDetail):
     def refresh_level_options(self, crop, level=None):
         options=self.render_source.level_options(float(self.state.volume_preview_mib),crop)
         automatic=next((o['level'] for o in options if o['fits']),len(options)-1)
-        items=[dict(value='auto',label=f'Auto (L{automatic})',disabled=False)]
+        items=[dict(value='auto',label=f'Auto (base L{automatic})',disabled=False)]
         for item in options:
             dimensions='×'.join(map(str,item['shape'][::-1]))
             spacing=' × '.join(f'{s*1000:g}' for s in item['spacing'])
@@ -121,6 +121,7 @@ class VolumeViewing(AutoDetail):
         dimensions='×'.join(map(str,volume.values.shape[::-1]))
         spacing=' × '.join(f'{s*1000:g}' for s in volume.spacing)
         extra=f' (subsampling ×{volume.stride})' if volume.stride>1 else ''
+        if getattr(volume,'refined_from',None) is not None:extra+=f' (refined from L{volume.refined_from})'
         self.state.render_loaded=f'level {volume.level}{extra}\n{dimensions} voxels\n{size_text(volume.values.nbytes)}'
         name=self.render_source.path.name if self.render_source.path else 'Sample'
         self.state.volume_summary=f'{name}: {dimensions} voxels, {size_text(volume.values.nbytes)}'
@@ -168,6 +169,20 @@ class VolumeViewing(AutoDetail):
             self.state.render_error=str(error)
         self.state.flush()
 
+    def refresh_content_mapping(self, **_):
+        if not self.state.has_volume or self.state.volume_loading:return
+        if not (self.state.detail_enabled or self.state.render_level=='auto'):return
+        loaded=getattr(self,'loaded_volume',None)
+        if loaded is not None and loaded.display_threshold==self.display_array_key()[2]:return
+        try:asyncio.get_running_loop()
+        except RuntimeError:return
+        if self.state.detail_enabled:
+            self.cancel_render_load()
+            self._detail_key=None;self._detail_failure=None;self._detail_overview=None
+            self.detail_refresh(force=True)
+        else:
+            self.queue_render_load(self._render_spec['crop'],'auto',float(self.state.volume_preview_mib))
+
     def queue_render_load(self,crop,level,budget,kind=None):
         self._render_generation+=1
         if self._render_cancel:self._render_cancel.set()
@@ -188,11 +203,12 @@ class VolumeViewing(AutoDetail):
             cancel=threading.Event()
             self._render_cancel=cancel
             try:
+                threshold=self.display_array_key()[2]
                 if kind:
                     volume=await asyncio.to_thread(source.preview,budget,cancel,crop,level,
-                        cache=self._detail_cache,contrast=self.contrast)
+                        cache=self._detail_cache,contrast=self.contrast,refine=True,threshold=threshold)
                 else:
-                    volume=await asyncio.to_thread(source.preview,budget,cancel,crop,level)
+                    volume=await asyncio.to_thread(source.preview,budget,cancel,crop,level,refine=level=='auto',threshold=threshold)
                 if (cancel.is_set() or generation!=self._render_generation or context!=self.state.sample_context
                         or source is not self.render_source):
                     continue

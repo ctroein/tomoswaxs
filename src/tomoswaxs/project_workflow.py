@@ -501,7 +501,7 @@ class ProjectWorkflow(SampleManagement):
                 level=selection.get('level','auto')
                 options=source.level_options(budget,selection.get('crop'))
                 if level!='auto' and (level>=len(options) or not options[level]['fits']):level='auto'
-                return source.preview(budget,cancel=cancel,crop=selection.get('crop'),level=level)
+                return source.preview(budget,cancel=cancel,crop=selection.get('crop'),level=level,refine=level=='auto')
             volume=await asyncio.to_thread(read)
             if cancel.is_set():
                 raise ImportCancelled('Load cancelled.')

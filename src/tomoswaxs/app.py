@@ -91,6 +91,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.state.change('volume_import_mode')(self.set_import_destination)
         self.server.controller.on_server_ready.add(self.view.update)
         self.server.controller.on_server_ready.add(self.restore_saxs)
+        self.server.controller.on_server_ready.add(self.refresh_content_mapping)
         self.server.controller.on_server_exited.add(self.persist_active)
         self.update_scene()
         self.update_plots()
@@ -136,7 +137,9 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
             cached = self.loaded_volume
             scale,origin = source.geometry(source.images[cached.level])
             origin=origin+(np.array([s.start for s in cached.selection][::-1])*scale if cached.selection else 0)
-            volume = replace(cached,source=source,spacing=scale*cached.stride,origin=origin)
+            basis_spacing=(tuple(np.asarray(cached.refinement_spacing)*source.spacing/cached.source.spacing)
+                           if cached.refinement_spacing is not None else None)
+            volume = replace(cached,source=source,spacing=scale*cached.stride,origin=origin,refinement_spacing=basis_spacing)
             self._applying_pose = True
             try:
                 self.state.sample_context = uuid.uuid4().hex
@@ -286,7 +289,14 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
 
     def set_image_data(self):
         key=self.display_array_key()
-        selection=transparent_crop(self.volume,key[2]) if key[1] else tuple(slice(0,n) for n in self.volume.shape)
+        loaded=getattr(self,'loaded_volume',None)
+        if (key[1] and loaded is not None and loaded.values is self.volume and
+                loaded.display_selection is not None and loaded.display_threshold==key[2]):
+            selection=loaded.display_selection
+        elif loaded is not None and loaded.values is self.volume and loaded.refined_from is not None:
+            selection=tuple(slice(0,n) for n in self.volume.shape)
+        else:
+            selection=transparent_crop(self.volume,key[2]) if key[1] else tuple(slice(0,n) for n in self.volume.shape)
         values=np.ascontiguousarray(self.volume[selection])
         origin=self.origin+np.array([s.start for s in selection][::-1])*self.spacing
         image = vtk.vtkImageData()
@@ -495,8 +505,11 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
             self.state.status = 'Contrast maximum must exceed minimum; both must be finite numbers.'
             return
         self.state.contrast_step=colour_mapping_step(high,low)
-        if self.display_array_key()!=getattr(self,'_display_array_key',None):
+        previous=getattr(self,'_display_array_key',None)
+        if self.display_array_key()!=previous:
             self.set_image_data()
+        if previous is not None and previous[2]!=self.display_array_key()[2]:
+            self.refresh_content_mapping()
         self.transfer.RemoveAllPoints()
         scalar = lambda value: low+(high-low)*value/65535
         self.colors.RemoveAllPoints()
@@ -668,7 +681,7 @@ def main():
                 return
         if path and path.suffix.lower() in ('.tif','.tiff'):
             raise ValueError('Import TIFF using --import-tiff FILE --output DESTINATION, or the GUI selector.')
-        volume = VolumeSource(path).preview(args.preview_mib) if path else None
+        volume = VolumeSource(path).preview(args.preview_mib,refine=True) if path else None
     except (OSError, ValueError) as error:
         parser.error(str(error))
     app = Demo(volume=volume,data_directory=args.data_dir,preview_mib=args.preview_mib,

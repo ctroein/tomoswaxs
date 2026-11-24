@@ -199,6 +199,11 @@ class Volume:
     crop: tuple | None = None          # XYZ, full-resolution cell indices [start, stop)
     selection: tuple | None = None     # actual ZYX slices at the selected level
     requested_level: str | int = 'auto'
+    display_threshold: float | None = None
+    display_selection: tuple | None = None
+    refined_from: int | None = None
+    refinement_crop: tuple | None = None
+    refinement_spacing: tuple | None = None
 
 
 class VolumeSource:
@@ -281,7 +286,7 @@ class VolumeSource:
             options.append(dict(level=i,shape=shape,bytes=size,spacing=tuple(map(float,spacing)),fits=size<=budget))
         return options
 
-    def preview(self, budget_mib=DEFAULT_PREVIEW_MIB, cancel=None, crop=None, level='auto', *, cache=None, contrast=None):
+    def preview(self, budget_mib=DEFAULT_PREVIEW_MIB, cancel=None, crop=None, level='auto', *, cache=None, contrast=None, refine=False, threshold=None):
         crop=self.crop_bounds(crop)
         options=self.level_options(budget_mib,crop)
         requested=level
@@ -324,7 +329,11 @@ class VolumeSource:
                 raise ValueError('The preview contains no finite intensities.')
         scale,origin = self.geometry(image)
         origin=origin+np.asarray([s.start for s in selection][::-1])*scale
-        return Volume(values,scale*stride,origin,(low,high),self.path,self,level,stride,crop,selection,requested)
+        volume=Volume(values,scale*stride,origin,(low,high),self.path,self,level,stride,crop,selection,requested)
+        if refine:
+            from .volume_bounds import refine_preview
+            return refine_preview(volume,budget_mib,low+(high-low)*9000/65535 if threshold is None else threshold,cancel,cache)
+        return volume
 
 
 def hdf5_volumes(path):

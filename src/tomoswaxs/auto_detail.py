@@ -239,6 +239,9 @@ class AutoDetail:
     def detail_sufficient(self,volume,plan):
         return (volume is not None and volume.source is self.render_source and volume.crop is not None
                 and contains(volume.crop,plan['required'])
+                and (volume.display_threshold is None or volume.display_threshold==self.display_array_key()[2])
+                and (volume.refinement_crop is None or contains(volume.refinement_crop,plan['required'])
+                     or np.all(np.asarray(plan['spacing'])>=np.asarray(volume.refinement_spacing)*(1-1e-8)))
                 and np.all(np.asarray(volume.spacing)<=plan['spacing']*1.01)
                 and volume.values.nbytes<=plan['budget']*1024**2)
 
@@ -273,6 +276,7 @@ class AutoDetail:
         useful=self.detail_overlap(loaded,plan['required'])>=.6
         for level,budget,spacing in candidates:
             if (loaded is not None and loaded.source is self.render_source
+                    and (loaded.display_threshold is None or loaded.display_threshold==self.display_array_key()[2])
                     and np.all(np.asarray(loaded.spacing)<=np.asarray(spacing)*1.01)
                     and (contains(loaded.crop,plan['required']) or useful)
                     and loaded.values.nbytes<=plan['budget']*1024**2):
@@ -306,6 +310,7 @@ class AutoDetail:
         # a sharper full-coverage array with a late, coarser result.
         loaded=getattr(self,'loaded_volume',None)
         sharper=(loaded is not None and loaded.source is self.render_source
+                 and (loaded.display_threshold is None or loaded.display_threshold==self.display_array_key()[2])
                  and self.detail_overlap(loaded,plan['required'])>=.6
                  and np.all(np.asarray(loaded.spacing)<=np.asarray(volume.spacing)*1.01))
         if (contains(volume.crop,plan['required']) and volume.values.nbytes<=plan['budget']*1024**2

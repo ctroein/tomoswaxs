@@ -310,9 +310,22 @@ the current opacity mapping's zero-opacity boundary, not a fixed numerical
 near-zero tolerance. Float32 scalar values, including values much smaller than
 one, remain unchanged. Nonfinite values are retained conservatively.
 
-The loaded source array is kept so changing the colour mapping immediately
-restores newly visible material. The manual crop and source files are unchanged.
-The Loaded summary describes the source array; Rendered shows the smaller VTK
-input. This first pass reduces rendering input, not source reads or the budget
-used to choose a resolution level. Explicit resolution levels keep the full
-selected array unless Auto detail is enabled.
+The bounds found at the initial Auto level are mapped to full-resolution image
+coordinates, retaining that level's interpolation margin. Auto then loads the
+finest stored level that fits those bounds within its array budget. Auto detail
+uses its existing reservation for a retained overview. The refined data are not
+trimmed or used to request another refinement. Fully transparent base arrays do
+not trigger refinement.
+
+Changing the colour mapping reconsiders the original coverage at the base
+resolution, so previously excluded material can return. The manual crop and
+source files remain unchanged. Small features absent from the coarse image can
+be excluded by this approximation; select an explicit level without Auto detail
+to inspect the full selected region. A later Auto-detail zoom outside the
+refined box requests fresh data when the new target is finer than the original
+coarse check.
+
+The Auto selector reports its base level. Loaded reports the actual level and
+notes when it was refined; Rendered describes the VTK input. A refinement read
+can temporarily overlap the previous array in memory, and decoding caches and
+VTK allocations are additional to the array budget.
