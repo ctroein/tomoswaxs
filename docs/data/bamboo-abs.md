@@ -376,6 +376,15 @@ registration transform were found in the integrated-file headers.
 2. Which reconstructed array direction is the physical rotation axis? What
    stitching/cropping/flipping led to the reconstructed dimensions and centres
    1351/674, and how are camera pixel coordinates transferred to this array?
+   Axis-label follow-up (2026-11-24): Carl observes that Crop's image Z is the
+   direction called Y in the ForMAX viewer/laboratory frame, suggesting X/Z/Y
+   labels for the three current Crop rows. The supplied reconstruction metadata
+   calls its slice direction Z (`Z(number-of-slices)_X(width)_Y(height)`), and
+   the current image-Z-to-lab-Y alignment is a working assignment. Confirm with
+   the beamline scientists whether this slice direction is physically ForMAX Y,
+   and establish the full axis permutation and signs, before changing labels.
+   Distinguish stored array order, reconstructed-image axes and laboratory axes
+   explicitly in the agreed convention.
 3. Which CT coordinates/regions do the sampled `swaxs_y` locations cover?
    What were the beam footprint and
    positional uncertainties?

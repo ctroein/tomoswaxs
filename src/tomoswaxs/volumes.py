@@ -18,7 +18,7 @@ import ngff_zarr as ngff
 import numpy as np
 import tifffile
 
-DEFAULT_PREVIEW_MIB = 64
+DEFAULT_PREVIEW_MIB = 256
 CHUNK = 64
 
 

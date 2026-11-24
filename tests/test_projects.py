@@ -208,6 +208,25 @@ class WorkflowChecks(unittest.TestCase):
                 self.assertEqual(app.project.dataset_path(app.project.sample(identifier)),moved)
             asyncio.run(check())
 
+    def test_ct_relink_rejects_raw_inputs_without_importing_or_changing_reference(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app,tiff,_=self.fixture(folder)
+            project=self.new_project(app,Path(folder)/'project')
+            identifier=app.active_sample_id
+            original=project.path.read_bytes()
+            hdf5=Path(folder)/'raw.h5';hdf5.write_bytes(b'not opened during relinking')
+            app._relink_id=identifier
+            with patch('tomoswaxs.project_workflow.import_tiff') as import_tiff, patch('tomoswaxs.project_workflow.import_hdf5') as import_hdf5:
+                for path in (tiff,hdf5):
+                    app.state.update(picker_mode='relink',volume_selection=str(path),
+                                     volume_hdf5_dataset='/volume',volume_destination=str(Path(folder)/'unwanted.zarr'))
+                    asyncio.run(app._load_selected_volume())
+                    self.assertIn('existing OME-Zarr',app.state.volume_error)
+                    self.assertEqual(project.path.read_bytes(),original)
+                    self.assertFalse((Path(folder)/'unwanted.zarr').exists())
+                import_tiff.assert_not_called()
+                import_hdf5.assert_not_called()
+
     def test_tiff_external_and_create_project_destinations(self):
         with tempfile.TemporaryDirectory() as folder:
             app,tiff,_=self.fixture(folder)

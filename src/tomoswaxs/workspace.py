@@ -126,6 +126,7 @@ class DockWorkspace:
                 html.Input(id='render-limit',type='number',v_model_number=('volume_preview_mib',),min=1,step=64,
                     input='window.nimCrop.limit($event.target.value)',change='window.nimCrop.submit(true)',disabled=('volume_loading || !has_volume',),title='Maximum voxel array size loaded into RAM for rendering.')
             html.P("{{ 'Loaded ' + render_loaded }}",role='status',classes='loaded-array-summary')
+            html.P("{{ 'Rendered ' + render_display }}",v_if=("render_level === 'auto' || detail_enabled",),classes='loaded-array-summary')
             self.render_status()
 
     def render_status(self):

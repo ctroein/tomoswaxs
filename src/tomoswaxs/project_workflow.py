@@ -32,7 +32,7 @@ class ProjectWorkflow(SampleManagement):
                           project_new_directory='',
                           project_open_path='',project_name_draft='',sample_name_draft='',
                           project_include_current=True,project_for_tiff=False,picker_mode='volume',
-                          project_relink_choice='',volume_import_mode='external',sample_context=uuid.uuid4().hex,
+                          project_relink_choice='',relink_sample_name='',relink_ct_path='',volume_import_mode='external',sample_context=uuid.uuid4().hex,
                           show_samples=False,project_samples=[],managed_sample_choice='',managed_sample_name='',sample_manager_error='')
         self.state.project_new_folder=''
         self._directory_snapshot=None
@@ -405,7 +405,9 @@ class ProjectWorkflow(SampleManagement):
         if not self.rename_project():
             return
         self._relink_id=self.state.project_relink_choice
-        self.state.update(picker_mode='relink',show_volume_picker=True)
+        sample=self.project.sample(self._relink_id)
+        self.state.update(picker_mode='relink',show_volume_picker=True,volume_error='',
+                          relink_sample_name=sample['name'],relink_ct_path=sample['datasets']['ct'].get('path',''))
         self.configure_volume_filter()
         self.project_dialog_visibility(False)
         self.list_volume_directory()
@@ -442,6 +444,8 @@ class ProjectWorkflow(SampleManagement):
                 return
             if path.is_dir() and not is_ome_zarr(path):
                 self._list_volume_directory(path); return
+            if self.state.picker_mode=='relink' and not is_ome_zarr(path):
+                raise ValueError('Select the existing OME-Zarr CT image folder. Relinking does not import TIFF or HDF5 files.')
             if not is_ome_zarr(path) and path.suffix.lower() not in ('.tif','.tiff','.h5','.hdf5'):
                 raise ValueError('Supported CT inputs are TIFF, HDF5 and OME-Zarr images.')
             if path.suffix.lower() in ('.h5','.hdf5') and not self.state.volume_hdf5_dataset:
@@ -594,10 +598,10 @@ class ProjectWorkflow(SampleManagement):
                         html.Label('Name',raw_attrs=['for="project-name"'])
                         html.Input(id='project-name',v_model=('project_name_draft',),disabled=('volume_loading',))
                         html.P('Project file: {{ project_open_path }}',classes='settings-help')
-                        html.Label('Sample to locate',raw_attrs=['for="relink-sample"'])
+                        html.Label('Sample whose CT image moved',raw_attrs=['for="relink-sample"'])
                         with html.Select(id='relink-sample',v_model=('project_relink_choice',),disabled=('volume_loading',)):
                             html.Option('{{ sample.name }}',v_for='sample in sample_choices',value=('sample.id',),key=('sample.id',))
-                        html.Button('Locate sample data',click=self.relink_sample,disabled=('volume_loading || !project_relink_choice',))
+                        html.Button('Locate CT image…',click=self.relink_sample,disabled=('volume_loading || !project_relink_choice',))
                     with html.Div(v_if=("project_dialog_mode === 'new'",)):
                         html.Label('Project directory',raw_attrs=['for="new-project-directory"'])
                         with html.Div(classes='path-field'):

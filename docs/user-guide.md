@@ -260,8 +260,25 @@ keeping the data files.
 
 Existing datasets are referenced where they are. TIFF imports normally go inside
 the project folder. When moving a project, keep its internal directory structure
-together. External datasets must remain accessible; if a CT dataset has moved,
-use **Project → Project settings → Locate sample data** to find it again.
+together. Dataset references resolve symlinks. Targets inside the project directory are
+stored relative to it; targets outside it are stored as absolute paths, including
+sibling directories. Copying a common parent directory therefore does not
+automatically repair external references. External datasets must remain accessible; if a CT dataset has moved,
+use **Project → Project settings → Locate CT image…** to find the existing OME-Zarr folder again. The dialog shows the sample and
+stored CT path. Relinking does not import a raw TIFF or HDF5 file.
+
+SAXS scan records contain separate paths for the integrated HDF5 and motor
+metadata files. There is no bulk path repair or dedicated SAXS relink action.
+Reattaching scans through Load SAXS scans replaces their file references;
+manual `project.json` edits should be made while the project is closed.
+
+An imported CT image opens from its OME-Zarr alone. The original TIFF/HDF5 path
+is retained as import provenance in the Zarr metadata, not as a required source
+for viewing. Separate CT motor-reference metadata can be used to initialize
+CT/SAXS placement; that is distinct from the original CT voxel file.
+
+The default voxel array size limit is 256 MiB. A saved browser preference or
+`--preview-mib` can override it.
 
 Standalone inspection keeps viewing adjustments temporarily. The explicit pixel
 size edit described above still changes the imported dataset. Some future
@@ -283,3 +300,19 @@ as panel arrangement. Changes to the limit in Crop and resolution are remembered
 Plot font size is a percentage of interface text size; 100% uses matching sizes.
 These preferences are saved in the browser. A remembered layout restores detached
 panels inside the main window when the page is reloaded.
+
+### Transparent margins in Auto
+
+Auto resolution and Auto detail omit fully transparent outer planes from the
+loaded array sent to VTK. Each face is scanned only until a potentially visible
+plane is found, with one extra voxel retained for interpolation. The test uses
+the current opacity mapping's zero-opacity boundary, not a fixed numerical
+near-zero tolerance. Float32 scalar values, including values much smaller than
+one, remain unchanged. Nonfinite values are retained conservatively.
+
+The loaded source array is kept so changing the colour mapping immediately
+restores newly visible material. The manual crop and source files are unchanged.
+The Loaded summary describes the source array; Rendered shows the smaller VTK
+input. This first pass reduces rendering input, not source reads or the budget
+used to choose a resolution level. Explicit resolution levels keep the full
+selected array unless Auto detail is enabled.

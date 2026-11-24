@@ -235,10 +235,15 @@ class ApplicationUI:
                             html.P('Dependencies retain their own licences.', classes='about-muted')
                         with quasar.QCardActions(align='right'):
                             html.Button('Close', click='show_about = false')
-                with quasar.QDialog(v_model=('show_volume_picker',), persistent=True,position='top'):
+                with quasar.QDialog(v_model=('show_volume_picker',), persistent=('volume_loading',), no_backdrop_dismiss=True,
+                                    escape_key=self.cancel_volume_load,position='top'):
                     with quasar.QCard(classes='volume-picker', raw_attrs=['role="dialog"', 'aria-labelledby="volume-picker-title"']):
                         with quasar.QCardSection(classes='picker-body'):
-                            html.H2('{{ picker_mode === \"project_directory\" ? directory_picker_title : picker_mode === \"project\" ? \"Open project\" : picker_mode === \"saxs\" ? \"Load SAXS scans\" : picker_mode === \"relink\" ? \"Locate sample data\" : \"Open sample\" }}', id='volume-picker-title')
+                            html.H2('{{ picker_mode === \"project_directory\" ? directory_picker_title : picker_mode === \"project\" ? \"Open project\" : picker_mode === \"saxs\" ? \"Load SAXS scans\" : picker_mode === \"relink\" ? \"Locate CT image\" : \"Open sample\" }}', id='volume-picker-title')
+                            with html.Div(v_if=("picker_mode === 'relink'",),classes='settings-help'):
+                                html.P('Sample: {{ relink_sample_name }}')
+                                html.P('Stored CT image: {{ relink_ct_path }}')
+                                html.P('Select the existing OME-Zarr CT image folder at its new location.')
                             with html.Div(classes='picker-navigation'):
                                 html.Label('Folder',raw_attrs=['for="volume-directory"'])
                                 html.Input(id='volume-directory',type='text',v_model=('volume_directory',),disabled=('volume_loading',),
@@ -279,7 +284,7 @@ class ApplicationUI:
                                     html.Option('{{ item.label }}',v_for='item in volume_filter_options',value=('item.value',),key=('item.value',))
                                 html.Input(id='volume-name-filter',type='text',v_model=('volume_name_filter',),v_if=("volume_filter_choice === 'custom'",),
                                     title='Filename pattern; separate multiple patterns with semicolons.',raw_attrs=['aria-label="Custom filename pattern"'],disabled=('volume_loading',))
-                            with html.Div(classes='picker-import-options',v_if=("picker_mode !== 'project_directory' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path === volume_selection",)):
+                            with html.Div(classes='picker-import-options',v_if=("picker_mode === 'volume' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path === volume_selection",)):
                                 with html.Div(v_if=('project_name',),classes='import-row'):
                                     html.Label('Destination',raw_attrs=['for="import-destination-mode"'])
                                     with html.Select(id='import-destination-mode',v_model=('volume_import_mode',),disabled=('volume_loading',)):
@@ -325,5 +330,5 @@ class ApplicationUI:
                             html.Button('Cancel',click=self.cancel_volume_load)
                             html.Button('Load scans in this directory',v_if=("picker_mode === 'saxs'",),click=self.use_saxs_directory,disabled=('saxs_loading',))
                             html.Button('Use this directory',v_if=("picker_mode === 'project_directory'",),click=self.finish_project_directory)
-                            html.Button('{{ picker_mode === \"project_directory\" ? \"Open folder\" : \"Open\" }}',click=self.open_selected_volume,disabled=("volume_loading || (picker_mode === 'project_directory' && !volume_selection) || (picker_mode !== 'project_directory' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path !== volume_selection)",))
+                            html.Button('{{ picker_mode === \"project_directory\" ? \"Open folder\" : picker_mode === \"relink\" ? \"Use this CT image\" : \"Open\" }}',click=self.open_selected_volume,disabled=("volume_loading || (picker_mode === 'project_directory' && !volume_selection) || (picker_mode === 'volume' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path !== volume_selection)",))
         self.layout = layout

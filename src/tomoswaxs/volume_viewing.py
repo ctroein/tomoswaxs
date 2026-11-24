@@ -40,7 +40,7 @@ class VolumeViewing(AutoDetail):
         self._crop_dragging=False
         self.init_auto_detail()
         self.state.update(crop_revision=0,crop_bounds=[],render_options=[],render_level='auto',
-            render_loaded='',render_target='',render_error='',render_loading=False,
+            render_loaded='',render_display='',render_target='',render_error='',render_loading=False,
             crop_handles=False,crop_notice='',crop_units='voxel',crop_origin_um=[0.,0.,0.],crop_spacing_um=[1.,1.,1.])
         self.state.client_only('crop_draft_x','crop_draft_y','crop_draft_z','crop_notice','crop_units')
         self.sync_volume_controls()

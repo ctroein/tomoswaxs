@@ -11,7 +11,7 @@ import vtk
 from vtk.util.numpy_support import numpy_to_vtk
 from trame.app import get_server
 from .project_info import NAME
-from .volumes import VolumeSource, import_tiff, tiff_spacing, is_ome_zarr, directory_entries, import_pixel_size, replace_import_pixel_size, spacing_xyz, hdf5_volumes, hdf5_spacing, hdf5_axes
+from .volumes import DEFAULT_PREVIEW_MIB, VolumeSource, import_tiff, tiff_spacing, is_ome_zarr, directory_entries, import_pixel_size, replace_import_pixel_size, spacing_xyz, hdf5_volumes, hdf5_spacing, hdf5_axes
 from .projects import legacy_axis, VIEW_FIELDS
 from .project_workflow import ProjectWorkflow
 from .ui import ApplicationUI
@@ -20,6 +20,7 @@ from .volume_viewing import VolumeViewing
 from .saxs_workflow import SaxsWorkflow
 from .camera import CameraControls
 from .rendering import create_render_window, device_option
+from .volume_bounds import transparent_crop
 
 
 
@@ -32,7 +33,7 @@ def colour_mapping_step(high, low=0.):
 
 
 class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
-    def __init__(self, server=None, volume=None, data_directory=None, preview_mib=64, restore_project=True, render_device='auto'):
+    def __init__(self, server=None, volume=None, data_directory=None, preview_mib=DEFAULT_PREVIEW_MIB, restore_project=True, render_device='auto'):
         self.render_device=device_option(render_device)
         self.server = server or get_server(client_type='vue3')
         self.state = self.server.state
@@ -182,7 +183,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.update_scene()
 
     def volume_selection_changed(self, **_):
-        if self.state.picker_mode in ('project_directory','saxs','project'):
+        if self.state.picker_mode in ('project_directory','saxs','project','relink'):
             return
         self.state.update(volume_voxel_x=1.,volume_voxel_y=1.,volume_voxel_z=1.,volume_voxel_linked=True,
                           volume_destination='',volume_prepared_path='')
@@ -225,6 +226,8 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
     def configure_volume_filter(self):
         if self.state.picker_mode=='project':
             options=[dict(value='project.json',label='Projects (project.json)')]
+        elif self.state.picker_mode=='relink':
+            options=[dict(value='*.ome.zarr; *.zarr',label='Existing OME-Zarr CT images (folders)')]
         elif self.state.picker_mode=='saxs':
             options=[dict(value='*_eiger_integrated.h5',label='Integrated SAXS (*_eiger_integrated.h5)')]
         else:
@@ -275,13 +278,27 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         finally:
             self.state.flush()
 
+    def display_array_key(self):
+        automatic=bool(self.state.detail_enabled or self.state.render_level=='auto')
+        low,high=float(self.state.contrast_low),float(self.state.contrast_high)
+        threshold=low+(high-low)*9000/65535
+        return (id(self.volume),automatic,threshold if automatic else None)
+
     def set_image_data(self):
+        key=self.display_array_key()
+        selection=transparent_crop(self.volume,key[2]) if key[1] else tuple(slice(0,n) for n in self.volume.shape)
+        values=np.ascontiguousarray(self.volume[selection])
+        origin=self.origin+np.array([s.start for s in selection][::-1])*self.spacing
         image = vtk.vtkImageData()
-        image.SetDimensions(*self.volume.shape[::-1])
+        image.SetDimensions(*values.shape[::-1])
         image.SetSpacing(*np.broadcast_to(self.spacing,3))
-        image.SetOrigin(*self.origin)
-        image.GetPointData().SetScalars(numpy_to_vtk(self.volume.ravel(), deep=False))
+        image.SetOrigin(*origin)
+        image.GetPointData().SetScalars(numpy_to_vtk(values.ravel(), deep=False))
         self.mapper.SetInputData(image)
+        self._display_array_key=key
+        self._display_selection=selection
+        self._display_values=values
+        self.state.render_display=f"{'×'.join(map(str,values.shape[::-1]))} voxels, {values.nbytes/1024**2:.2f} MiB"
         source=self.volume_source if self.volume_source is not None else self._empty_source
         self.sample.GetProperty().SetScalarOpacityUnitDistance(float(np.min(source.spacing)))
 
@@ -478,6 +495,8 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
             self.state.status = 'Contrast maximum must exceed minimum; both must be finite numbers.'
             return
         self.state.contrast_step=colour_mapping_step(high,low)
+        if self.display_array_key()!=getattr(self,'_display_array_key',None):
+            self.set_image_data()
         self.transfer.RemoveAllPoints()
         scalar = lambda value: low+(high-low)*value/65535
         self.colors.RemoveAllPoints()
@@ -624,7 +643,7 @@ def main():
     parser.add_argument('--output',type=Path,help='New OME-Zarr import destination')
     parser.add_argument('--import-only',action='store_true',help='Finish after conversion without starting the viewer')
     parser.add_argument('--voxel-size-um',type=float,nargs='+',help='Explicit TIFF voxel spacing: one value or X Y Z, in µm')
-    parser.add_argument('--preview-mib',type=float,default=64,help='Maximum loaded voxel array size in MiB (default: 64)')
+    parser.add_argument('--preview-mib',type=float,default=DEFAULT_PREVIEW_MIB,help=f'Maximum loaded voxel array size in MiB (default: {DEFAULT_PREVIEW_MIB})')
     parser.add_argument('--data-dir',type=Path,help='Initial directory for the GUI file selector')
     parser.add_argument('--render-device',default='auto',help='Graphics selection: auto (default), system, or egl:N')
     args, remaining = parser.parse_known_args()
