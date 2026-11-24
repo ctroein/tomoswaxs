@@ -21,6 +21,27 @@ class ApplicationUI:
         return html.Span((Path(__file__).parent/'assets/icons'/name).read_text(),
                          classes='app-icon',raw_attrs=['aria-hidden="true"'])
 
+    def stereo_menu(self):
+        html.Button('3D glasses',id='stereo-menu',disabled=('volume_loading || !has_volume',),
+                    raw_attrs=['aria-label="3D glasses"','aria-haspopup="dialog"'])
+        with quasar.QMenu(target='#stereo-menu',no_refocus=True,classes='stereo-menu'):
+            with html.Div(raw_attrs=['role="dialog"','aria-label="3D glasses"']):
+                with html.Div(classes='stereo-controls'):
+                    with html.Label(classes='stereo-toggle'):
+                        html.Input(type='checkbox',v_model=('stereo_enabled',),raw_attrs=['aria-label="Red–cyan 3D glasses"'])
+                        html.Span('Red–cyan 3D glasses')
+                    with html.Div(classes='stereo-strength'):
+                        html.Span('Strength')
+                        html.Input(type='range',v_model=('stereo_strength',),min=0,max=5,step=.1,
+                                   disabled=('!stereo_enabled',),raw_attrs=['aria-label="Stereo strength slider"'])
+                        html.Input(type='number',v_model=('stereo_strength',),min=0,max=5,step=.1,
+                                   disabled=('!stereo_enabled',),raw_attrs=['aria-label="Stereo strength"'])
+                    with html.Label(classes='stereo-toggle'):
+                        html.Input(type='checkbox',v_model=('stereo_swap',),disabled=('!stereo_enabled',),raw_attrs=['aria-label="Swap stereo eyes"'])
+                        html.Span('Swap eyes')
+                    html.P('Red over the left eye, cyan over the right. Colours are modified in stereo.',classes='settings-help')
+                    html.P('{{ stereo_notice }}',v_if=('stereo_notice',),role='alert',classes='picker-error')
+
     def build_ui(self):
         self.workspace = DockWorkspace(self)
         self.workspace.build_panels()
@@ -61,6 +82,7 @@ class ApplicationUI:
                             quasar.QSeparator()
                             html.Button('Default camera',click=self.reset_camera,raw_attrs=['role="menuitem"'])
                     html.Button('Beam view',click='window.nimCoordinates.beamView()',disabled=('volume_loading || !has_volume',))
+                    self.stereo_menu()
                     html.Span(classes='toolbar-spacer',raw_attrs=['aria-hidden="true"'])
                     with html.Label(classes='opacity-control'):
                         html.Span('Opacity ')

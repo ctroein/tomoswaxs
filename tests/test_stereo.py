@@ -78,3 +78,34 @@ class StereoChecks(unittest.TestCase):
         app.update_stereo()
         self.assertEqual(app.renderer.GetActiveCamera().GetEyeAngle(),before)
         self.assertTrue(app.state.stereo_notice)
+
+    def test_zoom_keeps_projected_colour_separation_bounded(self):
+        app=self.app();camera=app.renderer.GetActiveCamera()
+        app.renderer.RemoveVolume(app.sample);app.renderer.SetBackground(0,0,0)
+        sphere=vtk.vtkSphereSource();sphere.SetCenter(0,0,.3);sphere.SetRadius(.015)
+        sphere.SetThetaResolution(32);sphere.SetPhiResolution(32)
+        mapper=vtk.vtkPolyDataMapper();mapper.SetInputConnection(sphere.GetOutputPort())
+        actor=vtk.vtkActor();actor.SetMapper(mapper);actor.GetProperty().SetColor(1,1,1);actor.GetProperty().LightingOff()
+        app.renderer.AddActor(actor);app.window.SetSize(800,600)
+        camera.SetParallelProjection(False);camera.SetPosition(0,0,4);camera.SetFocalPoint(0,0,0)
+        camera.SetViewUp(0,1,0);camera.SetViewAngle(30)
+        app.state.stereo_enabled=True;app.update_stereo()
+        def disparity():
+            pixels=self.pixels(app).reshape(600,800,3).astype(float)
+            positions=np.arange(800)
+            centres=[float((pixels[:,:,i].sum(axis=0)*positions).sum()/pixels[:,:,i].sum()) for i in (0,1)]
+            return abs(centres[0]-centres[1])
+        before=disparity();angle=camera.GetEyeAngle()
+        self.assertGreater(before,.5)
+        camera.Zoom(8)
+        after=disparity()
+        self.assertLess(camera.GetEyeAngle(),angle/7)
+        self.assertLess(after,max(2.,before*1.5))
+        # Dolly towards a foreground face: separation also contracts, rather
+        # than allowing near-camera parallax to diverge.
+        camera.SetViewAngle(30);camera.SetPosition(0,0,.6)
+        app.sync_stereo_camera()
+        near_angle=camera.GetEyeAngle()
+        self.assertLess(near_angle,angle)
+        camera.SetPosition(0,0,.3);app.sync_stereo_camera()
+        self.assertEqual(camera.GetEyeAngle(),0.)

@@ -456,6 +456,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
                 camera.SetPosition(*(focal+direction*target))
             self.renderer.ResetCameraClippingRange(self.scene_bounds())
         self._zoom_camera = (camera.GetViewAngle(),camera.GetDistance())
+        self.sync_stereo_camera()
 
     def parameters(self):
         specs = {'beam_x':(-self.beam_limit_um,self.beam_limit_um), 'beam_y':(-self.beam_limit_um,self.beam_limit_um),

@@ -1,5 +1,6 @@
 """Camera-only orbit controls, independent of measured sample coordinates."""
 import math
+from itertools import product
 import numpy as np
 from .orientation import sample_rotation
 
@@ -16,18 +17,41 @@ class CameraControls:
         try:strength=float(self.state.stereo_strength)
         except (TypeError,ValueError):strength=float('nan')
         if not math.isfinite(strength) or not 0<=strength<=5:
-            self.state.stereo_notice='Use a stereo strength between 0 and 5°.'
+            self.state.stereo_notice='Use a stereo strength between 0 and 5.'
             return
         self.state.stereo_notice=''
         self.window.SetStereoTypeToAnaglyph()
         self.window.SetAnaglyphColorMask(3,4) if self.state.stereo_swap else self.window.SetAnaglyphColorMask(4,3)
         self.window.SetAnaglyphColorSaturation(0.)
-        self.renderer.GetActiveCamera().SetEyeAngle(strength)
         self.window.SetStereoRender(bool(self.state.stereo_enabled and strength>0))
+        self.sync_stereo_camera()
         if self.state.detail_enabled:
             self._detail_key=None
             self.detail_refresh(force=True)
         self.view.update()
+
+    def sync_stereo_camera(self, *_):
+        camera=self.renderer.GetActiveCamera()
+        try:strength=float(self.state.stereo_strength)
+        except (TypeError,ValueError):return
+        if not math.isfinite(strength) or not 0<=strength<=5:return
+        angle=0.
+        if self.window.GetStereoRender():
+            distance=max(camera.GetDistance(),1e-12)
+            # Wheel zoom changes the field of view; dolly changes distance.
+            # Scale the baseline with the visible span for both zoom mechanisms.
+            ratio=min(1.,self.camera_view_span()/(2*distance*math.tan(math.radians(15))))
+            if self.state.has_volume:
+                bounds=np.asarray(self.crop_world_bounds(self.state.crop_bounds)).reshape(3,2)
+                corners=np.array([(*point,1.) for point in product(*bounds)])
+                world=(corners @ self.sample_pose_matrix().T)[:,:3]
+                depths=(world-np.asarray(camera.GetPosition())) @ np.asarray(camera.GetDirectionOfProjection())
+                # Reduce the baseline as the foreground approaches the camera,
+                # bounding disparity instead of letting near-plane parallax diverge.
+                ratio*=max(0.,min(1.,float(depths.min())/distance))
+            angle=math.degrees(2*math.atan(math.tan(math.radians(strength/2))*ratio))
+        if not math.isclose(camera.GetEyeAngle(),angle,rel_tol=1e-10,abs_tol=1e-12):
+            camera.SetEyeAngle(angle)
 
     def receive_beam_view(self,context=None):
         if self.state.volume_loading or not self.state.has_volume or context!=self.state.sample_context:

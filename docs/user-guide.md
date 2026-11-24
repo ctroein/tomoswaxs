@@ -332,10 +332,11 @@ VTK allocations are additional to the array budget.
 
 ### Red–cyan 3D glasses
 
-Open **View controls** in the µCT panel and enable **Red–cyan 3D glasses**.
+Open **3D glasses** beside **Beam view** and enable **Red–cyan 3D glasses**.
 Use red over the left eye and cyan over the right, or select **Swap eyes** for
-the opposite arrangement. Strength controls eye separation from 0 to 5°; zero
-uses the ordinary view. A modest strength is usually easier to fuse.
+the opposite arrangement. Strength ranges from 0 to 5; zero uses the ordinary view. Separation follows
+the visible view size when zooming and reduces as the foreground approaches
+the camera. A modest strength is usually easier to fuse.
 
 Stereo affects the 3D image, including the beam and axes, while the SAXS plots
 retain their normal colours. The stereo image uses brightness rather than the
