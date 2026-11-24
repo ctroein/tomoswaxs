@@ -336,3 +336,9 @@ details > summary:focus-visible {outline:2px solid var(--accent);outline-offset:
 .resolution-limit input {text-align:right}
 
 .beam-visibility {display:flex;align-items:center;gap:.35rem;margin:.65rem 0}
+
+.stereo-controls {margin-top:.7rem;padding-top:.6rem;border-top:1px solid var(--border)}
+.stereo-toggle {display:flex;align-items:center;gap:.4rem;margin:.4rem 0}
+.stereo-strength {display:flex;align-items:center;gap:.4rem}
+.stereo-strength input[type=range] {min-width:3rem;flex:1;width:5rem}
+.stereo-strength input[type=number] {width:4rem}

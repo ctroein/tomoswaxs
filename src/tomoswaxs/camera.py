@@ -7,10 +7,27 @@ from .orientation import sample_rotation
 class CameraControls:
     def init_camera_controls(self):
         self._camera_crop_key=None
-        self.state.update(camera_angle=0.,draft_camera_angle=0.)
+        self.state.update(camera_angle=0.,draft_camera_angle=0.,stereo_enabled=False,stereo_strength=2.,stereo_swap=False,stereo_notice='')
         self.state.client_only('draft_camera_angle')
         self.server.controller.trigger('nim_camera_angle')(self.receive_camera_angle)
         self.server.controller.trigger('nim_beam_view')(self.receive_beam_view)
+
+    def update_stereo(self, **_):
+        try:strength=float(self.state.stereo_strength)
+        except (TypeError,ValueError):strength=float('nan')
+        if not math.isfinite(strength) or not 0<=strength<=5:
+            self.state.stereo_notice='Use a stereo strength between 0 and 5°.'
+            return
+        self.state.stereo_notice=''
+        self.window.SetStereoTypeToAnaglyph()
+        self.window.SetAnaglyphColorMask(3,4) if self.state.stereo_swap else self.window.SetAnaglyphColorMask(4,3)
+        self.window.SetAnaglyphColorSaturation(0.)
+        self.renderer.GetActiveCamera().SetEyeAngle(strength)
+        self.window.SetStereoRender(bool(self.state.stereo_enabled and strength>0))
+        if self.state.detail_enabled:
+            self._detail_key=None
+            self.detail_refresh(force=True)
+        self.view.update()
 
     def receive_beam_view(self,context=None):
         if self.state.volume_loading or not self.state.has_volume or context!=self.state.sample_context:

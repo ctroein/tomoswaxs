@@ -329,3 +329,17 @@ The Auto selector reports its base level. Loaded reports the actual level and
 notes when it was refined; Rendered describes the VTK input. A refinement read
 can temporarily overlap the previous array in memory, and decoding caches and
 VTK allocations are additional to the array budget.
+
+### Red–cyan 3D glasses
+
+Open **View controls** in the µCT panel and enable **Red–cyan 3D glasses**.
+Use red over the left eye and cyan over the right, or select **Swap eyes** for
+the opposite arrangement. Strength controls eye separation from 0 to 5°; zero
+uses the ordinary view. A modest strength is usually easier to fuse.
+
+Stereo affects the 3D image, including the beam and axes, while the SAXS plots
+retain their normal colours. The stereo image uses brightness rather than the
+normal colour mapping's hues. It renders two eye views and can be slower,
+particularly with CPU rendering. Controls apply to the running server instance
+and are not saved with the project. Auto detail expands its loading region for
+both eyes; a frozen region remains fixed until unfrozen.

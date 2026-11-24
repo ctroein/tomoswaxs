@@ -58,6 +58,23 @@ class DockWorkspace:
                 html.P('Hold Shift while dragging with the left button to pan, or Ctrl to roll the view. Hold both Shift and Ctrl to zoom. You can also pan with the middle button and zoom with the right button.')
                 html.P('Hold Alt+Shift and drag with the left button to move the beam.')
                 html.P('The sample rotates about Y; the beam travels along Z, from light to dark.')
+                with html.Div(classes='stereo-controls'):
+                    with html.Label(classes='stereo-toggle'):
+                        html.Input(type='checkbox',v_model=('stereo_enabled',),raw_attrs=['aria-label="Red–cyan 3D glasses"'])
+                        html.Span('Red–cyan 3D glasses')
+                    with html.Div(classes='stereo-strength'):
+                        html.Span('Strength')
+                        html.Input(type='range',v_model=('stereo_strength',),min=0,max=5,step=.1,
+                                   disabled=('!stereo_enabled',),raw_attrs=['aria-label="Stereo strength slider"'])
+                        html.Input(type='number',v_model=('stereo_strength',),min=0,max=5,step=.1,
+                                   disabled=('!stereo_enabled',),raw_attrs=['aria-label="Stereo strength (°)"'])
+                        html.Span('°')
+                    with html.Label(classes='stereo-toggle'):
+                        html.Input(type='checkbox',v_model=('stereo_swap',),disabled=('!stereo_enabled',),raw_attrs=['aria-label="Swap stereo eyes"'])
+                        html.Span('Swap eyes')
+                    html.P('Red over the left eye, cyan over the right. Colours are modified in stereo.',classes='settings-help')
+                    html.P('{{ stereo_notice }}',v_if=('stereo_notice',),role='alert',classes='picker-error')
+
 
     def build_volume_controls(self):
         app=self.app

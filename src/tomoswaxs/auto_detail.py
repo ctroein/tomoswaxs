@@ -118,6 +118,8 @@ class AutoDetail:
     def detail_view_planes(self):
         camera=self.renderer.GetActiveCamera()
         copy=vtk.vtkCamera();copy.DeepCopy(camera)
+        # Plan from the centre camera, independently of which eye rendered last.
+        copy.SetEyeAngle(0.)
         coefficients=[0.]*24
         copy.GetFrustumPlanes(self.renderer.GetTiledAspectRatio(),coefficients)
         sides=np.asarray(coefficients).reshape(6,4)[:4]
@@ -126,6 +128,12 @@ class AutoDetail:
         bounds=np.asarray(self.crop_world_bounds(self.state.crop_bounds)).reshape(3,2)
         corners=np.array([(*p,1.) for p in product(*bounds)]) @ self.sample_pose_matrix().T
         depths=(corners[:,:3]-focal) @ direction
+        if self.window.GetStereoRender():
+            # Enclose both eye views conservatively. Bound the eye displacement
+            # and projection shear over the complete crop, including its depth.
+            margin=math.tan(math.radians(camera.GetEyeAngle()/2))*(2*camera.GetDistance()+max(abs(depths.min()),abs(depths.max())))
+            sides=sides.copy()
+            sides[:,3]+=margin*np.linalg.norm(sides[:,:3],axis=1)
         value=float(self.state.detail_depth)
         thickness=2*max(abs(depths.min()),abs(depths.max())) if value>=100 else self.camera_view_span()*(2**(-3+6*value/100))
         thickness=max(float(np.min(self.render_source.spacing)),thickness)
@@ -151,7 +159,8 @@ class AutoDetail:
                     camera.GetViewAngle(),camera.GetParallelScale(),float(camera.GetParallelProjection()),
                     self.renderer.GetTiledAspectRatio()),9)),
                 tuple(self.sample_pose_matrix().ravel()),tuple(map(tuple,self.state.crop_bounds)),
-                float(self.state.detail_depth),float(self.state.volume_preview_mib),bool(self.state.detail_frozen))
+                float(self.state.detail_depth),float(self.state.volume_preview_mib),bool(self.state.detail_frozen),
+                bool(self.window.GetStereoRender()),float(camera.GetEyeAngle()))
 
     def detail_render_start(self,*_):
         if self._detail_rendering or not self.state.detail_enabled:return

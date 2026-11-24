@@ -84,6 +84,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.state.change('log_iq')(self.update_plots)
         self.state.change('contrast_low', 'contrast_high')(self.update_scene)
         self.state.change('beam_visible')(self.beam_visibility_changed)
+        self.state.change('stereo_enabled','stereo_strength','stereo_swap')(self.update_stereo)
         self.state.change('volume_selection')(self.volume_selection_changed)
         self.state.change('volume_name_filter')(self.filter_volume_directory)
         self.state.change('rotation_axis')(self.rotation_axis_changed)
