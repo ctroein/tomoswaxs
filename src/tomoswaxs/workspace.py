@@ -39,10 +39,10 @@ class DockWorkspace:
                     style='width:100%;height:100%')
         with DivLayout(app.server, 'nim_iq') as layout:
             layout.root.classes = 'dock-panel'
-            app.curve = self.plot()
+            app.curve = self.plot('curve')
         with DivLayout(app.server, 'nim_cake') as layout:
             layout.root.classes = 'dock-panel'
-            app.cake = self.plot()
+            app.cake = self.plot('cake')
         self.build_volume_controls()
         build_saxs_panel(app)
 
@@ -145,8 +145,8 @@ class DockWorkspace:
             remove_panel='window.nimWorkspace.removed($event)',
             panel_visibility='window.nimWorkspace.visibility($event)')
 
-    def plot(self):
-        figure = plotly.Figure(classes='plot',v_show=('has_sample',),style='width:100%;height:100%',display_logo=False,responsive=True)
+    def plot(self, name):
+        figure = plotly.Figure(ref=f'{name}Plot',after_plot=f'window.nimPreferences.fitPlotDecorations(trame.refs.{name}Plot?.$el)',classes='plot',v_show=('has_sample',),style='width:100%;height:100%',display_logo=False,responsive=True)
         figure.layout = (f"window.nimPreferences.plotLayout({figure.key}.layout, ui_theme, ui_text_scale, ui_plot_scale)",)
         figure.data = (f"window.nimPreferences.plotData({figure.key}.data, ui_theme, ui_text_scale, ui_plot_scale)",)
         return figure

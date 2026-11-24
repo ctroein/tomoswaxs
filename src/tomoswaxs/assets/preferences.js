@@ -81,12 +81,37 @@
       : {...trace,...(trace.customdata ? {customdata:heatmapHoverData(trace.customdata)} : {}),colorbar:{...trace.colorbar,nticks:3,
           tickfont:{color:p.fg,size},title:{...trace.colorbar?.title,font:{color:p.fg,size}}}});
   }
+  const adjustingPlots = new WeakSet();
+  function fitPlotDecorations(root) {
+    const plot=root?.matches?.('.js-plotly-plot') ? root : root?.querySelector?.('.js-plotly-plot');
+    if (!plot?._fullLayout || plot.data?.[0]?.type!=='heatmap' || adjustingPlots.has(plot)) return;
+    const legend=plot.querySelector('.legend')?.getBoundingClientRect();
+    const bar=plot.querySelector('.colorbar')?.getBoundingClientRect();
+    if (!bar || !window.Plotly) return;
+    const size=plot._fullLayout._size, font=Number(plot._fullLayout.font.size)||14;
+    const gap=Math.ceil(font*.6), legendHeight=legend?.height||0, legendWidth=legend?.width||0;
+    // Stack the key above the scale where it fits. Very short panels or large
+    // text use adjacent columns instead of overlapping the key and scale.
+    const beside=legendHeight>0 && size.h<legendHeight+gap+4*font;
+    const right=Math.max(108,Math.ceil((beside ? bar.width+legendWidth+gap : Math.max(bar.width,legendWidth))+16));
+    const width=Math.max(1,plot.clientWidth-size.l-right);
+    const x=1.02+(beside ? (bar.width+gap)/width : 0);
+    const length=beside ? 1 : Math.max(.1,Math.min(1,(size.h-legendHeight-(legendHeight ? gap : 0))/size.h));
+    if (Math.abs((plot.data[0].colorbar?.len??1)-length)<.002 &&
+        Math.abs((plot.layout.legend?.x??1.02)-x)<.002 && plot.layout.margin?.r===right) return;
+    adjustingPlots.add(plot);
+    Promise.resolve(window.Plotly.update(plot,{'colorbar.len':length},
+      {'margin.r':right,'legend.x':x},[0])).finally(()=>{
+        adjustingPlots.delete(plot);
+        requestAnimationFrame(()=>fitPlotDecorations(plot));
+      });
+  }
   // Dependency-free unit checks can import the persistence and styling layer.
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {KEY,defaults,normalise,load,save,plotLayout,plotData,heatmapHoverData};
     return;
   }
-  window.nimPreferences = {plotLayout,plotData,
+  window.nimPreferences = {plotLayout,plotData,fitPlotDecorations,
     getLayout:()=>prefs.layout,
     updateLayout(layout) {
       if (!prefs.rememberLayout || !validLayout(layout)) return;

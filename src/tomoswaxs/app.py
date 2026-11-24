@@ -546,27 +546,32 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         q,phi,cake,iq = self.signal
         if not hasattr(self,'curve_figure'):
             common = dict(template='plotly_dark', paper_bgcolor='#101722',
-                          plot_bgcolor='#101722', margin=dict(l=58,r=20,t=20,b=48),
+                          plot_bgcolor='#101722', margin=dict(l=52,r=12,t=8,b=32),
                           font=dict(family='sans-serif',size=14), autosize=True,
                           uirevision='preserve-user-zoom')
             self.curve_figure = go.Figure(go.Scatter(mode='lines',line=dict(color='#67deeb',width=2)))
             self.curve_figure.update_layout(**common,xaxis_title='q',yaxis_title='I(q)')
             self.cake_figure = go.Figure(go.Heatmap(colorscale='Magma',
-                colorbar=dict(title='log₁₀ I<br>(stored)',thickness=12),
+                colorbar=dict(title=dict(text='log₁₀ I<br>(stored)',side='top'),thickness=14,
+                              x=1.02,xanchor='left',y=0,yanchor='bottom',len=.62,xpad=2,ypad=0),
                 hoverongaps=False,connectgaps=False,zsmooth=False,
                 hovertemplate='q=%{x:.3f}<br>φ=%{y:.0f}°<br>I=%{customdata:.5g}<br>log₁₀ I=%{z:.2f}<extra></extra>'))
             # Categorical overlays keep missing coverage and measured zero
             # distinct even though neither has a finite logarithm.
-            for label,color in [('No data','#84909f'),('Zero intensity','#46c9ca'),
-                                ('Negative intensity','#5494ef')]:
+            for label,description,color in [('No data','No data','#84909f'),('Zero','Zero intensity','#46c9ca'),
+                                            ('Negative','Negative intensity','#5494ef')]:
                 self.cake_figure.add_trace(go.Heatmap(name=label,
                     colorscale=[[0,color],[1,color]],zmin=0,zmax=1,
                     showscale=False,showlegend=False,hoverongaps=False,
                     connectgaps=False,zsmooth=False,
-                    hovertemplate='q=%{x:.3f}<br>φ=%{y:.0f}°<br>'+label+'<extra></extra>'))
+                    hovertemplate='q=%{x:.3f}<br>φ=%{y:.0f}°<br>'+description+'<extra></extra>'))
             self.cake_figure.update_layout(**common,xaxis_title='q',yaxis_title='φ (degrees)')
-            self.cake_figure.update_layout(margin_t=42,
-                legend=dict(orientation='h',x=0,y=1.02,yanchor='bottom',font_size=14))
+            for figure in (self.curve_figure,self.cake_figure):
+                figure.update_xaxes(title_standoff=2)
+                figure.update_yaxes(title_standoff=4)
+            self.cake_figure.update_layout(margin_r=108,
+                legend=dict(orientation='v',x=1.02,xanchor='left',y=1,yanchor='top',
+                            tracegroupgap=0,font_size=14))
         # Keep dense arrays as NumPy arrays: Plotly encodes them as typed binary
         # buffers instead of recursively validating/serializing Python lists.
         curve = self.curve_figure.data[0]
@@ -582,7 +587,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         for trace,mask in zip(self.cake_figure.data[1:],classes):
             trace.x,trace.y=q,phi
             trace.z=np.where(mask,1.,np.nan).astype(np.float32)
-            trace.showlegend=measured and (trace.name!='Negative intensity' or bool(mask.any()))
+            trace.showlegend=measured and (trace.name!='Negative' or bool(mask.any()))
         q_unit=(self.saxs_scans[self.state.saxs_scan].q_unit if self.saxs_scans else 'unknown units') if measured else ''
         self.curve_figure.layout.xaxis.title.text=f'q ({q_unit})' if q_unit else 'q'
         self.cake_figure.layout.xaxis.title.text=f'q ({q_unit})' if q_unit else 'q'

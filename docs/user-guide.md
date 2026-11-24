@@ -91,7 +91,8 @@ shows intensity against q and azimuth φ. With measured data attached, both plot
 come from the same selected measurement; I(q) is the supplied integrated curve.
 Grey cake bins indicate missing data, including regions without detector
 coverage. Turquoise indicates measured zero intensity. The legend and hover
-labels identify these colours. Negative intensities, if present, appear blue.
+labels identify these colours. The key is stacked above the colour scale;
+“Zero” means zero intensity. Negative intensities, if present, appear blue.
 The q axis uses the units recorded in the file.
 
 **Log I** changes the curve’s intensity axis to a logarithmic scale. The cake
