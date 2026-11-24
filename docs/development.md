@@ -293,15 +293,19 @@ submitting its last angle and replaces the pending `camera` queue entry with
 `beam-view`. It runs through `nim_beam_view` after any in-flight request, so an
 old queued angle cannot undo the alignment. The server checks sample context;
 subsequent manual camera movement works normally.
-Beam view puts camera and focal point on the beam's XY line. Parallel viewing
-direction alone leaves an offset beam oblique under perspective projection.
-Fit bounds symmetric about the beam line to keep the visible crop in frame.
-The projection regression checks both beam endpoints in screen coordinates.
+Beam view uses parallel projection along the beam, centred on the selected
+crop rather than an offset beam. Parallel projection keeps both endpoints of
+an offset beam at the same screen point; the beam need not be in frame.
+Both presets fit a sample-centred bounding sphere with an 8% margin so arbitrary
+orbits retain the sample. Cached sample-wide display bounds exclude transparent
+margins when available; view-dependent Auto-detail arrays do not replace that
+cache. Neither beam position nor length sets the zoom. Beam length is 60% of
+the former `max(4.5, diagonal * 1.25)` rule.
 
 `camera.py` owns laboratory-Y camera orbiting, heading synchronization after
 mouse interaction, and the visible crop centre. Cropping translates both camera
 position and focal point to that centre, preserving direction and distance.
-Default camera fits the transformed crop bounds. Saved-view recall preserves
+Default camera fits those visible sample bounds around the crop centre. Saved-view recall preserves
 the saved camera, including its pan, until a crop/pose change or explicit camera
 orbit. Keep camera geometry separate from the CT–SAXS registration transform.
 

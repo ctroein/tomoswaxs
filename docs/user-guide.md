@@ -47,6 +47,9 @@ scattering measurement.
 
 **Beam view** stops camera playback and sets an orthographic camera view along the beam.
 This is useful for choosing where it passes through the sample.
+Default camera and Beam view fit the visible sample with room for an orbit,
+centred on the selected crop. The beam does not determine the zoom and may
+extend outside the window.
 The help button in the volume panel’s header provides a
 reminder of the mouse controls.
 

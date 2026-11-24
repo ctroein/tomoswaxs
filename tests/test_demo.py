@@ -147,7 +147,7 @@ class DemoChecks(unittest.TestCase):
         bounds = app.beam.GetBounds()
         self.assertAlmostEqual(bounds[1]-bounds[0],.4,places=5)
         self.assertAlmostEqual(bounds[3]-bounds[2],.16,places=5)
-        self.assertAlmostEqual(bounds[5]-bounds[4],4.5,places=5)
+        self.assertAlmostEqual(bounds[5]-bounds[4],2.7,places=5)
 
     def test_drag_projects_to_lab_xy(self):
         app = self.app

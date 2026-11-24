@@ -44,7 +44,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.volume_source = None
         self.contrast = (0., 65535.)
         self.beam_limit_um = 1600
-        self.beam_length = 4.5
+        self.beam_length = 2.7
         self.state.update(beam_x=250., beam_y=0., radius_x=60., radius_y=40.,
                           angle=0., beam_visible=True, rotation_axis='y', sample_settings_notice='',
                           sample_pixel_size_editable=False,sample_voxel_x=1.,sample_voxel_y=1.,sample_voxel_z=1.,sample_voxel_linked=True, opacity=.55, workspace_ready=False, workspace_tabs=[], workspace_detached=[], workspace_busy=[], workspace_error='',
@@ -109,7 +109,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         centre = volume.source.origin+extent/2
         diagonal = 2*float(np.linalg.norm(np.maximum(np.abs(volume.source.origin),np.abs(volume.source.origin+extent))))
         self.beam_limit_um = max(100, math.ceil(diagonal*500/100)*100)
-        self.beam_length = max(4.5, diagonal*1.25)
+        self.beam_length = .6*max(4.5, diagonal*1.25)
         dimensions = ' × '.join(map(str,volume.source.shape[::-1]))
         preview = ' × '.join(map(str,self.volume.shape[::-1]))
         spacing = ' × '.join(f'{value*1000:g}' for value in volume.spacing)
@@ -309,6 +309,10 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self._display_array_key=key
         self._display_selection=selection
         self._display_values=values
+        if not self.state.detail_enabled:
+            spacing=np.broadcast_to(self.spacing,3)
+            self._camera_data_bounds=np.column_stack([origin-spacing/2,origin+(np.array(values.shape[::-1])-.5)*spacing])
+            self._camera_data_key=(id(self.render_source),key[2])
         self.state.render_display=f"{'×'.join(map(str,values.shape[::-1]))} voxels, {values.nbytes/1024**2:.2f} MiB"
         source=self.volume_source if self.volume_source is not None else self._empty_source
         self.sample.GetProperty().SetScalarOpacityUnitDistance(float(np.min(source.spacing)))
@@ -415,16 +419,27 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         cam.SetPosition(*( (0,0,8) if beam_view else (-4,-6,3) ))
         cam.SetFocalPoint(0,0,0)
         cam.SetViewUp(0,1,0)
-        bounds=np.asarray(self.visible_crop_bounds()).reshape(3,2)
+        centre=self.visible_crop_centre()
+        points=self.camera_sample_points()
+        relative=points-centre
+        # A sample-centred sphere keeps the visible sample inside the window
+        # throughout arbitrary camera orbits, without including the beam.
+        radius=max(1e-6,float(np.linalg.norm(relative,axis=1).max()))
+        aspect=max(1e-6,self.renderer.GetTiledAspectRatio())
+        normal=np.asarray(cam.GetPosition())-cam.GetFocalPoint()
+        normal=normal/np.linalg.norm(normal)
+        cam.SetFocalPoint(*centre)
+        cam.SetViewAngle(30.)
+        padding=1.08
         if beam_view:
-            # Centre the current beam and retain the whole crop. Parallel
-            # projection keeps translated measurement rays end-on too.
-            centre=np.array([float(self.state.beam_x)/1000,float(self.state.beam_y)/1000,bounds[2].mean()])
-            half_extent=np.max(np.abs(bounds-centre[:,None]),axis=1)
-            bounds=np.column_stack([centre-half_extent,centre+half_extent])
-        self.renderer.ResetCamera(bounds.ravel())
-        self._camera_crop_key=tuple(self.visible_crop_centre())
-        cam.Zoom(1.05)
+            cam.SetParallelScale(padding*radius/min(1.,aspect))
+            distance=2*radius
+        else:
+            vertical=math.radians(cam.GetViewAngle()/2)
+            horizontal=math.atan(math.tan(vertical)*aspect)
+            distance=padding*radius/math.sin(min(vertical,horizontal))
+        cam.SetPosition(*(centre+normal*distance))
+        self._camera_crop_key=tuple(centre)
         self.zoom_out_limit = 4*self.camera_view_span()
         self._zoom_camera = (cam.GetViewAngle(),cam.GetDistance())
         self.renderer.ResetCameraClippingRange(self.scene_bounds())

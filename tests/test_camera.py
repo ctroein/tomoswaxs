@@ -83,7 +83,9 @@ class CameraChecks(unittest.TestCase):
             pixels.append(app.renderer.GetDisplayPoint()[:2])
         np.testing.assert_allclose(pixels[0],pixels[1],atol=1e-6,
             err_msg='Both ends of an offset beam must project to the same screen point')
-        np.testing.assert_allclose(pixels[0],np.array(app.window.GetSize())/2,atol=1e-6)
+        app.renderer.SetWorldPoint(*app.visible_crop_centre(),1)
+        app.renderer.WorldToDisplay()
+        np.testing.assert_allclose(app.renderer.GetDisplayPoint()[:2],np.array(app.window.GetSize())/2,atol=1e-6)
 
     def test_beam_view_stays_end_on_when_measurement_moves(self):
         app=self.app()
@@ -100,3 +102,42 @@ class CameraChecks(unittest.TestCase):
             np.testing.assert_allclose(pixels[0],pixels[1],atol=1e-6)
         app.reset_camera()
         self.assertFalse(cam.GetParallelProjection())
+
+    def test_camera_presets_ignore_beam_extent_and_keep_sample_inside_during_orbit(self):
+        app=self.app()
+        for beam_view in (False,True):
+            app.reset_camera(beam_view)
+            camera=app.renderer.GetActiveCamera()
+            span=app.camera_view_span()
+            app.beam.SetPosition(50,50,0);app.beam.SetScale(1,1,100)
+            app.reset_camera(beam_view)
+            self.assertAlmostEqual(app.camera_view_span(),span)
+            width,height=app.window.GetSize()
+            points=app.camera_sample_points()
+            for angle in range(-180,180,30):
+                app.receive_camera_angle(angle,False,app.state.sample_context)
+                for point in points:
+                    app.renderer.SetWorldPoint(*point,1);app.renderer.WorldToDisplay()
+                    x,y,_=app.renderer.GetDisplayPoint()
+                    self.assertTrue(0<=x<=width and 0<=y<=height,(beam_view,angle,x,y))
+            for elevation in (-60,-30,30,60):
+                app.reset_camera(beam_view)
+                camera.Elevation(elevation);camera.OrthogonalizeViewUp()
+                for point in points:
+                    app.renderer.SetWorldPoint(*point,1);app.renderer.WorldToDisplay()
+                    x,y,_=app.renderer.GetDisplayPoint()
+                    self.assertTrue(0<=x<=width and 0<=y<=height,(beam_view,elevation,x,y))
+
+    def test_transparent_margins_do_not_set_preset_zoom(self):
+        app=self.app()
+        app.volume=np.zeros_like(app.volume)
+        app.volume[60:100,60:100,60:100]=50000
+        app.set_image_data()
+        cached=app._camera_data_key
+        for beam_view in (False,True):
+            app._camera_data_key=cached
+            app.reset_camera(beam_view)
+            compact=app.camera_view_span()
+            app._camera_data_key=None
+            app.reset_camera(beam_view)
+            self.assertLess(compact,app.camera_view_span()/2)

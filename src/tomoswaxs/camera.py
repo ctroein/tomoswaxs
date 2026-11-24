@@ -42,9 +42,7 @@ class CameraControls:
             # Scale the baseline with the visible span for both zoom mechanisms.
             ratio=min(1.,self.camera_view_span()/(2*distance*math.tan(math.radians(15))))
             if self.state.has_volume:
-                bounds=np.asarray(self.crop_world_bounds(self.state.crop_bounds)).reshape(3,2)
-                corners=np.array([(*point,1.) for point in product(*bounds)])
-                world=(corners @ self.sample_pose_matrix().T)[:,:3]
+                world=self.camera_sample_points()
                 depths=(world-np.asarray(camera.GetPosition())) @ np.asarray(camera.GetDirectionOfProjection())
                 # Reduce the baseline as the foreground approaches the camera,
                 # bounding disparity instead of letting near-plane parallax diverge.
@@ -65,6 +63,16 @@ class CameraControls:
         direction=np.asarray(camera.GetPosition())-camera.GetFocalPoint()
         if np.hypot(direction[0],direction[2])>1e-10:
             self.state.camera_angle=round(math.degrees(math.atan2(direction[0],direction[2])),3)
+
+    def camera_sample_points(self):
+        bounds=np.asarray(self.crop_world_bounds(self.state.crop_bounds)).reshape(3,2)
+        key=(id(self.render_source),self.display_array_key()[2])
+        if getattr(self,'_camera_data_key',None)==key:
+            clipped=np.column_stack([np.maximum(bounds[:,0],self._camera_data_bounds[:,0]),
+                                     np.minimum(bounds[:,1],self._camera_data_bounds[:,1])])
+            if np.all(clipped[:,1]>clipped[:,0]):bounds=clipped
+        corners=np.array([(*point,1.) for point in product(*bounds)])
+        return (corners @ self.sample_pose_matrix().T)[:,:3]
 
     def visible_crop_centre(self,crop=None):
         bounds=np.asarray(self.crop_world_bounds(crop or self.state.crop_bounds)).reshape(3,2)
