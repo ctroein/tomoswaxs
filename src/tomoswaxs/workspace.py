@@ -27,16 +27,17 @@ class DockWorkspace:
                         raw_attrs=[':aria-label="(workspace_detached.includes($attrs.params.api.id) ? \'Return to main window: \' : \'Open in separate window: \') + $attrs.params.api.title"',
                                    '@pointerdown.stop','@mousedown.stop','@click.stop'],
                         disabled=('workspace_busy.includes($attrs.params.api.id)',)):
-                    app.svg_icon('open-window.svg')
+                    quasar.QIcon(name='open_in_new',size='1rem',classes='app-icon',raw_attrs=['aria-hidden="true"'])
                 html.Button('×',classes='nim-tab-action nim-tab-close',
                     click='$attrs.params.api.close()',title='Close tab',
                     raw_attrs=[':aria-label="\'Close tab: \' + $attrs.params.api.title"','@pointerdown.stop','@mousedown.stop','@click.stop'])
         with DivLayout(app.server, 'nim_volume') as layout:
             layout.root.style = 'width:100%;height:100%;position:relative;'
-            with html.Div(id='volume-interaction',v_show=('has_sample',),style=("'width:100%;height:100%;position:relative;pointer-events:' + (volume_loading ? 'none' : 'auto')",)):
+            with html.Div(id='volume-interaction',v_show=('has_sample || beamline_visible',),style=("'width:100%;height:100%;position:relative;pointer-events:' + (volume_loading ? 'none' : 'auto')",)):
                 app.view = vtk_widgets.VtkRemoteView(app.window,interactive_ratio=1,interactive_quality=75,still_quality=95,
                     interactor_events=('camera_events',['EndAnimation']),EndAnimation=app.camera_rendered,
                     style='width:100%;height:100%')
+                html.Span('ForMAX',v_if=('beamline_visible',),classes='beamline-caption')
         with DivLayout(app.server, 'nim_iq') as layout:
             layout.root.classes = 'dock-panel'
             app.curve = self.plot('curve')
@@ -100,7 +101,8 @@ class DockWorkspace:
                     for side in ('min','max'):
                         if side=='max':
                             quasar.QRange(v_model=(f'crop_draft_{axis}',),min=('0',),max=(f'crop_max_{axis}',),step=('1',),
-                                dark=("ui_theme === 'dark'",),dense=True,
+                                dark=("ui_theme === 'dark'",),dense=True,track_size='4px',thumb_size='14px',
+                                thumb_path='M 10,0 A 10,10 0 1 1 10,20 A 10,10 0 1 1 10,0 Z',
                                 update_model_value=f"window.nimCrop.change('{axis}',$event)",
                                 change=f"window.nimCrop.change('{axis}',$event,true)",
                                 disable=('volume_loading || !has_volume',),classes='crop-range',
@@ -126,8 +128,8 @@ class DockWorkspace:
                 html.Label('Voxel array limit (MiB)',raw_attrs=['for="render-limit"'])
                 html.Input(id='render-limit',type='number',v_model_number=('volume_preview_mib',),min=1,step=64,
                     input='window.nimCrop.limit($event.target.value)',change='window.nimCrop.submit(true)',disabled=('volume_loading || !has_volume',),title='Maximum voxel array size loaded into RAM for rendering.')
-            html.P("{{ 'Loaded ' + render_loaded }}",role='status',classes='loaded-array-summary')
-            html.P("{{ 'Rendered ' + render_display }}",v_if=("render_level === 'auto' || detail_enabled",),classes='loaded-array-summary')
+            html.P("{{ 'Rendered ' + render_display }}",role='status',title=('render_refinement_detail',),classes='loaded-array-summary')
+            html.P('{{ render_refinement }}',v_if=('render_refinement',),title=('render_refinement_detail',),classes='settings-help')
             self.render_status()
 
     def render_status(self):
@@ -137,7 +139,7 @@ class DockWorkspace:
 
     def build(self):
         self.dock = dockview.DockView(ref='nimDock',theme=("ui_theme === 'dark' ? 'Dark' : 'Light'",),
-            v_show=('has_sample',),
+            v_show=('has_sample || beamline_visible',),
             components=('{defaultTabComponent: \'nim_tab\'}',),popout_url='/nim-assets/popout.html',
             classes='dock-workspace',raw_attrs=[':aria-busy="!workspace_ready"'],default_renderer='always',floating_group_bounds='boundedWithinViewport',
             ready='window.nimWorkspace.ready(() => trame.refs.nimDock)',

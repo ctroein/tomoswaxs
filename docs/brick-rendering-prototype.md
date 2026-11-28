@@ -4,10 +4,12 @@
 [`tools/brick_rendering.py`](../tools/brick_rendering.py). It does not change the
 application's renderer or project files. Data access is read-only.
 
-The result is **promising for local replacement cost, but not ready to integrate**.
+Status, 2026-11-26: **experimental; further work deferred**. The result is
+promising for local replacement cost, but not ready to integrate.
 It provides finer central voxels within the array budget, at a lower orbiting
 frame rate. The separate-mapper paths fail the translucent-beam correctness test;
-the unified seven-input path encounters shader-resource limits on this GPU.
+the unified seven-input path encounters shader-resource limits in both tested
+GPU configurations. See the NVIDIA comparison and assessment below.
 
 ## What was built
 
@@ -134,8 +136,8 @@ centre with unchanged coarse context fits within 128 MiB, and that persistent
 bricks can reduce local replacement pauses. It does not deliver faster orbiting
 or satisfactory beam transparency.
 
-A next rendering experiment should establish correct single-ray integration
-with a bounded number of texture samplers, for example a brick atlas/page table
+If this work is resumed, a rendering experiment should establish correct
+single-ray integration with a bounded number of texture samplers, for example a brick atlas/page table
 with shared transfer-function textures. That is shader/renderer work rather
 than a swap to VTK's multiblock mapper. Validate it against the same optical
 test before adding camera-following brick management or application controls.
@@ -163,7 +165,9 @@ The Intel run used Mesa 26.2.7; the NVIDIA run verified an RTX 4070 Laptop GPU
 with driver 620.70.06. VTK still selected Intel by default; NVIDIA was selected
 for the benchmark process with `__NV_PRIME_RENDER_OFFLOAD=1` and
 `__GLX_VENDOR_LIBRARY_NAME=nvidia`. The application's launch configuration was
-not changed.
+not changed for that comparison. Subsequently, automatic device selection was
+added to the application; it selects NVIDIA on this laptop. The benchmark
+explicitly retains system selection so its offload environment controls the GPU.
 
 With the beam shown:
 

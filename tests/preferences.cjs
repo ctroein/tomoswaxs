@@ -2,6 +2,9 @@
 const assert = require('node:assert/strict');
 const {KEY,defaults,normalise,load,save,plotLayout,plotData,heatmapHoverData} = require('../src/tomoswaxs/assets/preferences.js');
 module.exports = function checkPreferences() {
+  assert.equal(defaults().rememberLayout,true);
+  assert.equal(normalise({version:1}).rememberLayout,true);
+  assert.equal(normalise({version:1,rememberLayout:false}).rememberLayout,false);
   const values = new Map();
   const storage = {getItem:key => values.get(key) ?? null,
                    setItem:(key,value) => values.set(key,value)};

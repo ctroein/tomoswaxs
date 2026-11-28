@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from importlib.metadata import version as package_version
 from pathlib import Path
+from .sources import is_http_url, source_location
 import math
 import json
 import fcntl
@@ -136,6 +137,7 @@ def is_ome_zarr(path):
 
 def import_pixel_size(path):
     """Return the editable spacing supplied for a TIFF import without pixel-size metadata."""
+    if is_http_url(path):return None
     metadata = Path(path)/'zarr.json'
     if not metadata.is_file():
         return None
@@ -192,7 +194,7 @@ class Volume:
     spacing: np.ndarray                # XYZ, mm
     origin: np.ndarray                 # XYZ, mm
     contrast: tuple[float, float]
-    path: Path
+    path: Path | str
     source: object
     level: int
     stride: int = 1
@@ -202,6 +204,8 @@ class Volume:
     display_threshold: float | None = None
     display_selection: tuple | None = None
     refined_from: int | None = None
+    refinement_history: tuple = ()      # (source level, subsampling stride) per loaded array
+    refinement_stop: str = ''          # finest / limit / empty after the final bounds check
     refinement_crop: tuple | None = None
     refinement_spacing: tuple | None = None
 
@@ -209,10 +213,20 @@ class Volume:
 class VolumeSource:
     """Lazy scalar ZYX OME-Zarr source, independent of the rendering preview."""
     def __init__(self, path, _import_validation=False):
-        self.path = Path(path).expanduser().resolve()
-        if ".importing-" in self.path.name and not _import_validation:
+        self.path = source_location(path)
+        remote=is_http_url(self.path)
+        if not remote and ".importing-" in self.path.name and not _import_validation:
             raise ValueError('This import is incomplete; open a completed OME-Zarr dataset.')
-        multiscales = ngff.from_ngff_zarr(self.path)
+        try:
+            if remote:
+                from .http_sources import read_http_multiscales
+                multiscales=read_http_multiscales(self.path)
+            else:
+                multiscales = ngff.from_ngff_zarr(self.path)
+        except ImportError as error:
+            if remote:
+                raise ValueError('Opening OME-Zarr URLs requires the ngff-zarr remote extra (obstore).') from error
+            raise
         if not isinstance(multiscales, ngff.NgffMultiscales):
             raise ValueError('Select a scalar multiscale OME-Zarr image.')
         self.images = multiscales.images

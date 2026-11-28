@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-const {defaultLayout,validLayout,mainWindowLayout,placeSaxsBelowResolution,mergeVolumeControls}=require('../src/tomoswaxs/assets/workspace.js');
+const {defaultLayout,validLayout,mainWindowLayout,placeSaxsBelowResolution,mergeVolumeControls,sizeLayout,savedLayout}=require('../src/tomoswaxs/assets/workspace.js');
 module.exports=function checkWorkspace(){
   const layout=defaultLayout(1200,600);
   assert.equal(validLayout(layout),true);
@@ -47,6 +47,14 @@ module.exports=function checkWorkspace(){
   assert.equal(restoredDetached.grid.root.data.at(-1).data.views[0],'cake');
   assert.equal(detached.popoutGroups.length,1,'Do not mutate the live layout');
   assert.deepEqual(mainWindowLayout(layout),layout);
+  const relative=savedLayout(layout);
+  assert.equal(relative.grid.width,1);assert.equal(relative.grid.height,1);
+  assert.equal(relative.grid.root.data[1].size,.3);
+  const resized=sizeLayout(relative,2000,1000);
+  assert.equal(resized.grid.root.data[1].size,600);
+  assert.equal(resized.grid.root.data[0].data[0].size,660);
+  assert.deepEqual(sizeLayout(layout,2000,1000),resized,'Old pixel layouts migrate with the same proportions');
+  assert.equal(layout.grid.width,1200,'Conversion does not modify the source');
   const allDetached={grid:{width:1200,height:600,orientation:'HORIZONTAL',root:{type:'branch',data:[]}},panels:layout.panels,popoutGroups:[{url:'javascript:bad'}]};
   assert.equal(mainWindowLayout(allDetached).grid.root.data.length,5);
   const {save,load}=require('../src/tomoswaxs/assets/preferences.js');
@@ -61,8 +69,9 @@ module.exports=function checkWorkspace(){
       dispatchEvent(event) {for(const entry of [...(events.get(event.type)||[])]) {if(entry.once)events.set(event.type,events.get(event.type).filter(e=>e!==entry));entry.fn(event);}},
       trame:{state:{get:key=>values[key],set(key,value){values[key]=value;for(const fn of stateListeners)fn({type:'dirty-state',keys:[key]});},addListener:fn=>stateListeners.push(fn)},trigger:()=>Promise.resolve()},
     };
-    const document={documentElement:{dataset:{},style:{}},addEventListener(){},querySelector:()=>({clientWidth:1200,clientHeight:600})};
-    const context=vm.createContext({window,document,MutationObserver:class{observe(){} disconnect(){}},Vue:{nextTick:fn=>fn()},Event:class{constructor(type){this.type=type;}},setTimeout:()=>1,clearTimeout(){},requestAnimationFrame:fn=>fn(),console});
+    const element={clientWidth:1200,clientHeight:600};let resize;
+    const document={documentElement:{dataset:{},style:{}},addEventListener(){},querySelector:()=>element};
+    const context=vm.createContext({window,document,MutationObserver:class{observe(){} disconnect(){}},ResizeObserver:class{constructor(fn){resize=fn;}observe(){} disconnect(){}},Vue:{nextTick:fn=>fn()},Event:class{constructor(type){this.type=type;}},setTimeout:()=>1,clearTimeout(){},requestAnimationFrame:fn=>fn(),console});
     let ready=false;
     for(const name of order) {
       vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/tomoswaxs/assets',name),'utf8'),context);
@@ -82,6 +91,14 @@ module.exports=function checkWorkspace(){
     window.nimWorkspace.changed(grouped);
     assert.deepEqual(Array.from(values.workspace_tabs),['volume','iq','cake','crop','saxs']);
     assert.equal(document.documentElement.dataset.theme,'light');
+    element.clientWidth=0;element.clientHeight=0;
+    const previous=restored;
+    window.nimWorkspace.restore(grouped);
+    window.nimWorkspace.changed(defaultLayout(100,100));
+    assert.equal(restored,previous,'Hidden workspaces do not restore a constrained temporary grid');
+    element.clientWidth=1800;element.clientHeight=900;resize();
+    assert.equal(restored.grid.width,1800);
+    assert.equal(restored.grid.root.data[1].size,540,'Reveal restores the requested proportions');
   }
 
 };

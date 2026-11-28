@@ -12,14 +12,45 @@ from .workspace import DockWorkspace
 
 
 class ApplicationUI:
+    def sample_menu(self):
+        html.Button('Sample',id='sample-menu',classes='project-menu-trigger',
+                    raw_attrs=['aria-label="Sample"','aria-haspopup="menu"'])
+        with quasar.QMenu(target='#sample-menu',auto_close=True,classes='project-menu'):
+            html.Button('Open sample…',id='open-volume',click=self.open_volume_picker,
+                        disabled=('volume_loading',),raw_attrs=['role="menuitem"'])
+            html.Button('Load SAXS scans…',click=self.open_saxs_picker,
+                        disabled=('!has_sample || volume_loading',),raw_attrs=['role="menuitem"'])
+            html.Button('Sample settings',click='window.nimCoordinates.pause(); show_sample_settings = true',
+                        disabled=('!has_sample || volume_loading',),raw_attrs=['role="menuitem"'])
+            html.Button('Manage samples…',click=self.show_samples,
+                        disabled=('volume_loading || !project_name',),raw_attrs=['role="menuitem"'])
+            quasar.QSeparator(v_if=('sample_choices.length',))
+            html.Span('Samples',v_if=('sample_choices.length',),classes='settings-help')
+            with html.Button(v_for='item in sample_choices',key=('item.id',),
+                             click='sample_choice = item.id',disabled=('volume_loading',),
+                             raw_attrs=['role="menuitemradio"',':aria-checked="sample_choice === item.id"',':data-sample-id="item.id"']):
+                html.Span('✓',classes='tab-menu-check',raw_attrs=[':style="{visibility: sample_choice === item.id ? \'visible\' : \'hidden\'}"','aria-hidden="true"'])
+                html.Span('{{ item.name }}')
+
+    def beamline_menu(self):
+        html.Button('Beamline',id='beamline-menu',classes='project-menu-trigger',disabled=('volume_loading',),raw_attrs=['aria-label="Beamline"','aria-haspopup="menu"'])
+        ensure_volume="workspace_tabs.includes('volume') || window.nimWorkspace.open('volume');"
+        with quasar.QMenu(target='#beamline-menu',classes='project-menu',auto_close=True):
+            for level,label in [('sample','Sample'),('area','Sample area'),('station','Whole beamline')]:
+                with html.Button(click=ensure_volume+f"window.nimCoordinates.pause(); window.trame.trigger('nim_beamline_level',['{level}'])",
+                                 disabled=("volume_loading || (beamline_model_loading && '"+level+"' !== 'sample')",),raw_attrs=['role="menuitemradio"',f':aria-checked="beamline_level === \'{level}\'"']):
+                    html.Span('✓',classes='tab-menu-check',raw_attrs=[f':style="{{visibility: beamline_level === \'{level}\' ? \'visible\' : \'hidden\'}}"','aria-hidden="true"'])
+                    html.Span(label)
+            quasar.QSeparator()
+            with html.Button(click='beamline_labels = !beamline_labels',disabled=('!beamline_visible',),
+                             raw_attrs=['role="menuitemcheckbox"',':aria-checked="beamline_labels"']):
+                html.Span('✓',classes='tab-menu-check',raw_attrs=[':style="{visibility: beamline_labels ? \'visible\' : \'hidden\'}"','aria-hidden="true"'])
+                html.Span('Component labels')
+
     def path_browse_button(self,label,callback):
         with html.Button(classes='path-browse',click=callback,title=label,
                          disabled=('volume_loading',),raw_attrs=[f'aria-label="{label}"']):
-            self.svg_icon('folder-open.svg')
-
-    def svg_icon(self,name):
-        return html.Span((Path(__file__).parent/'assets/icons'/name).read_text(),
-                         classes='app-icon',raw_attrs=['aria-hidden="true"'])
+            quasar.QIcon(name='folder_open',size='1.4rem',classes='app-icon',raw_attrs=['aria-hidden="true"'])
 
     def stereo_menu(self):
         html.Button('3D glasses',id='stereo-menu',disabled=('volume_loading || !has_volume',),
@@ -52,21 +83,21 @@ class ApplicationUI:
                     with html.Div(classes='header-actions'):
                         html.Span('{{ project_name || \"Standalone inspection\" }}',classes='project-name')
                         self.project_menu()
-                        html.Button('Open sample…', id='open-volume', click=self.open_volume_picker,disabled=('volume_loading',))
-                        with html.Label(classes='sample-selector'):
-                            with html.Select(v_model=('sample_choice',),raw_attrs=['aria-label="Sample"'],disabled=('volume_loading || !sample_choices.length',)):
-                                html.Option('{{ has_sample && !project_name ? sample_name : "No sample open" }}',value='',disabled=True)
-                                html.Option('{{ sample.name }}',v_for='sample in sample_choices',value=('sample.id',),key=('sample.id',))
-                        html.Button('Samples…',click=self.show_samples,disabled=('volume_loading || !project_name',))
-                        html.Button('Sample settings',click='window.nimCoordinates.pause(); show_sample_settings = true',disabled=('!has_sample || volume_loading',))
+                        self.sample_menu()
+                        html.Span('{{ sample_name }}',v_if=('has_sample',),classes='sample-name')
                         with html.Div(classes='header-secondary'):
-                            html.Button('Tabs',id='view-menu',classes='project-menu-trigger',raw_attrs=['aria-haspopup="menu"','aria-label="Tabs"'])
+                            html.Button('View',id='view-menu',classes='project-menu-trigger',raw_attrs=['aria-haspopup="menu"','aria-label="View"'])
                             with quasar.QMenu(target='#view-menu',auto_close=True,classes='project-menu'):
+                                html.Span('Tabs',classes='settings-help')
                                 for panel,label in [('volume','µCT volume'),('iq','SAXS 1D'),('cake','SAXS cake'),('crop','Crop and resolution'),('saxs','SAXS measurements')]:
                                     with html.Button(click=f"window.nimWorkspace.toggle('{panel}')",raw_attrs=['role="menuitemcheckbox"',f':aria-checked="workspace_tabs.includes(\'{panel}\')"']):
                                         html.Span('✓',classes='tab-menu-check',raw_attrs=[f':style="{{visibility: workspace_tabs.includes(\'{panel}\') ? \'visible\' : \'hidden\'}}"','aria-hidden="true"'])
                                         html.Span(label)
+                                quasar.QSeparator()
                                 html.Button('Restore default layout',click='window.nimWorkspace.reset()',raw_attrs=['role="menuitem"'])
+                                html.Button('Reinitialise rendering',click=self.reinitialise_rendering,
+                                            disabled=('volume_loading || render_reinitialising',),raw_attrs=['role="menuitem"'])
+                        self.beamline_menu()
                         html.Button('About', click='show_about = true')
                         with html.Button(id='open-settings',classes='settings-icon-button',title='Settings',raw_attrs=['aria-label="Settings"']):
                             quasar.QIcon(name='settings',size='1.25rem')
@@ -109,7 +140,7 @@ class ApplicationUI:
                             quasar.QIcon(name=("rotation_playing ? 'pause' : 'play_arrow'",),raw_attrs=['aria-hidden="true"'])
                         with html.Div(classes='rotation-settings-anchor'):
                             with html.Button(id='rotation-settings',classes='rotation-button',title='Camera rotation settings',disabled=('volume_loading || !has_volume',),raw_attrs=['aria-label="Camera rotation settings"','aria-haspopup="dialog"']):
-                                self.svg_icon('adjustments.svg')
+                                quasar.QIcon(name='tune',size='1.15rem',classes='app-icon',raw_attrs=['aria-hidden="true"'])
                             with quasar.QMenu(v_model=('rotation_settings_open',),target='#rotation-settings',no_refocus=True,classes='rotation-settings'):
                                 with html.Div(role='dialog',raw_attrs=['aria-label="Camera rotation settings"']):
                                     html.Strong('Camera rotation')
@@ -120,15 +151,30 @@ class ApplicationUI:
                                     html.P('Use 1–60 updates/s and 0.1–180° per update.',v_if=("!(Number(rotation_fps) >= 1 && Number(rotation_fps) <= 60 && Number(rotation_step) >= 0.1 && Number(rotation_step) <= 180)",),role='alert',classes='picker-error')
                                     html.Button('Done',click='rotation_settings_open = false')
                 self.workspace.build()
-                with html.Div(v_if=('!has_sample',),classes='empty-workspace'):
-                    html.P('No sample open. Choose Open sample… to begin.')
+                with html.Div(v_if=('!has_sample && !beamline_visible',),classes='empty-workspace'):
+                    html.P("{{ volume_loading ? (project_name ? 'Loading project…' : 'Loading sample…') : 'No sample open. Choose Open sample… to begin.' }}",role='status')
                 with html.Div(classes='app-footer'):
                     html.Span('{{ project_error }}',v_if=('project_error',),role='alert',classes='picker-error')
                     html.Span('{{ project_history_notice }}',v_if=('project_history_notice',),role='alert',classes='picker-error')
                     html.Span('{{ saved_view_error }}',v_if=('saved_view_error',),role='alert',classes='picker-error')
                     html.Span('{{ saxs_error }}',v_if=('saxs_error',),raw_attrs=['role="alert"'],classes='picker-error')
                     html.Span('{{ workspace_error }}',v_if=('workspace_error',),role='alert',classes='picker-error')
+                    html.Span('{{ render_reinitialise_error }}',v_if=('render_reinitialise_error',),role='alert',classes='picker-error')
+                    html.Span('Reinitialising rendering…',v_if=('render_reinitialising',),role='status')
                     html.Span('{{ status }}')
+                with quasar.QDialog(v_model=('show_beamline_download',),persistent=True):
+                    with quasar.QCard(classes='project-card',raw_attrs=['role="dialog"','aria-labelledby="beamline-download-title"']):
+                        with quasar.QCardSection():
+                            html.H2('ForMAX model',id='beamline-download-title')
+                            html.P('{{ beamline_download_message }}',v_if=('beamline_model_loading',),role='status')
+                            html.Progress(value=('beamline_download_percent',),max=100,v_if=('beamline_model_loading',),
+                                          style='width:100%',aria_label='ForMAX model progress')
+                            html.Span('{{ beamline_download_percent }}%',v_if=('beamline_model_loading',))
+                            html.P('{{ beamline_download_error }}',v_if=('beamline_download_error',),role='alert',classes='picker-error')
+                        with quasar.QCardActions(align='right'):
+                            html.Button('Cancel',v_if=('beamline_model_loading',),click=self.cancel_beamline_download)
+                            html.Button('Close',v_else=True,click='show_beamline_download = false')
+                            html.Button('Retry',v_if=('!beamline_model_loading && beamline_download_error',),click=self.retry_beamline_download)
                 with quasar.QDialog(v_model=('show_project_open_error',)):
                     with quasar.QCard(classes='project-card',raw_attrs=['role="alertdialog"','aria-labelledby="project-open-error-title"','aria-describedby="project-open-error-message"']):
                         with quasar.QCardSection():
@@ -166,7 +212,6 @@ class ApplicationUI:
                                 with html.Div(v_for='source in sample_sources',key=('source.path',),classes='sample-data-source'):
                                     html.Strong('{{ source.label }}')
                                     html.Div('{{ source.path }}')
-                            html.Button('Load SAXS scans…',click=self.open_saxs_picker,disabled=('volume_loading',))
                             with html.Div(v_if=('sample_choice',)):
                                 html.Label('Sample name',raw_attrs=['for=\"sample-name\"'])
                                 html.Input(id='sample-name',v_model=('sample_name_draft',),disabled=('volume_loading',))
@@ -234,6 +279,7 @@ class ApplicationUI:
                                         ('Python',None,'https://www.python.org/'),
                                         ('Dask','dask','https://www.dask.org/'),
                                         ('zarrista','zarrista','https://pypi.org/project/zarrista/'),
+                                        ('obstore','obstore','https://pypi.org/project/obstore/'),
                                         ('trame-client','trame-client','https://github.com/Kitware/trame-client'),
                                         ('trame-server','trame-server','https://github.com/Kitware/trame-server'),
                                         ('Trame','trame','https://kitware.github.io/trame/'),
@@ -259,90 +305,101 @@ class ApplicationUI:
                             html.Button('Close', click='show_about = false')
                 with quasar.QDialog(v_model=('show_volume_picker',), persistent=('volume_loading',), no_backdrop_dismiss=True,
                                     escape_key=self.cancel_volume_load,position='top'):
-                    with quasar.QCard(classes='volume-picker', raw_attrs=['role="dialog"', 'aria-labelledby="volume-picker-title"']):
+                    with quasar.QCard(classes=("{'volume-picker': true, 'url-picker': volume_url_mode && (picker_mode === 'volume' || picker_mode === 'relink')}",), raw_attrs=['role="dialog"', 'aria-labelledby="volume-picker-title"']):
                         with quasar.QCardSection(classes='picker-body'):
                             html.H2('{{ picker_mode === \"project_directory\" ? directory_picker_title : picker_mode === \"project\" ? \"Open project\" : picker_mode === \"saxs\" ? \"Load SAXS scans\" : picker_mode === \"relink\" ? \"Locate CT image\" : \"Open sample\" }}', id='volume-picker-title')
                             with html.Div(v_if=("picker_mode === 'relink'",),classes='settings-help'):
                                 html.P('Sample: {{ relink_sample_name }}')
                                 html.P('Stored CT image: {{ relink_ct_path }}')
-                                html.P('Select the existing OME-Zarr CT image folder at its new location.')
-                            with html.Div(classes='picker-navigation'):
-                                html.Label('Folder',raw_attrs=['for="volume-directory"'])
-                                html.Input(id='volume-directory',type='text',v_model=('volume_directory',),disabled=('volume_loading',),
-                                    keydown_enter=self.list_volume_directory,__events=[('keydown_enter','keydown.enter.prevent')])
-                                with html.Button(click=self.parent_volume_directory,title='Parent directory',disabled=('volume_loading',),raw_attrs=['aria-label="Parent directory"']):
-                                    quasar.QIcon(name='arrow_upward',size='1.1rem')
-                                with html.Button(click=self.list_volume_directory,title='Refresh',disabled=('volume_loading',),raw_attrs=['aria-label="Refresh"']):
-                                    quasar.QIcon(name='refresh',size='1.1rem')
-                            with quasar.QTable(id='volume-files',classes='file-table',
-                                               no_data_label=("picker_mode === 'project_directory' ? 'No subdirectories' : 'No files match the selected filters'",),
-                                               rows=('volume_entries',),row_key='path',
-                                               columns=('file_columns', [dict(name='name',label='Name',field='name',align='left',sortable=True),
-                                                        dict(name='size',label='Size',field='size',align='right',sortable=True),
-                                                        dict(name='modified',label='Modified',field='modified',align='left',sortable=True)]),
-                                               pagination=("{rowsPerPage:0,sortBy:'name',descending:false}",),
-                                               hide_bottom=True,dense=True,flat=True,
-                                               raw_attrs=['aria-label="Files and directories"']):
-                                with Template(raw_attrs=['#body="props"']):
-                                    with html.Tr(click='!volume_loading && (volume_selection = props.row.path)',
-                                                    dblclick=(self.open_selected_volume, "[props.row.path, true]"),
-                                                    keydown_space='!volume_loading && (volume_selection = props.row.path)',
-                                                    keydown_enter=(self.open_selected_volume, "[props.row.path, true]"),
-                                                    __events=[('keydown_space','keydown.space.prevent'),('keydown_enter','keydown.enter.prevent')],
-                                                    raw_attrs=['tabindex="0"', ':data-path="props.row.path"',
-                                                               ':aria-selected="volume_selection === props.row.path"'],
-                                                    classes=("{ 'file-selected': volume_selection === props.row.path }",)):
-                                        with html.Td():
-                                            html.Span('{{ props.row.name }}',title=('props.row.name',))
-                                        html.Td('{{ props.row.size_display }}',classes='text-right')
-                                        html.Td('{{ props.row.modified_display }}')
-                            with html.Div(classes='file-details',id='volume-file-details',
-                                          v_for='entry in volume_entries.filter(entry => entry.path === volume_selection)',key=('entry.path',)):
-                                html.Strong('{{ entry.name }}',title=('entry.path',))
-                                html.Span('{{ entry.kind }}{{ entry.size_detail ? " · " + entry.size_detail : "" }}')
-                            with html.Div(classes='picker-filter',v_if=("picker_mode !== 'project_directory'",)):
-                                html.Label('Filter',raw_attrs=['for="volume-filter"'])
-                                with html.Select(id='volume-filter',value=('volume_filter_choice',),change=(self.choose_volume_filter,'[$event.target.value]'),disabled=('volume_loading',)):
-                                    html.Option('{{ item.label }}',v_for='item in volume_filter_options',value=('item.value',),key=('item.value',))
-                                html.Input(id='volume-name-filter',type='text',v_model=('volume_name_filter',),v_if=("volume_filter_choice === 'custom'",),
-                                    title='Filename pattern; separate multiple patterns with semicolons.',raw_attrs=['aria-label="Custom filename pattern"'],disabled=('volume_loading',))
-                            with html.Div(classes='picker-import-options',v_if=("picker_mode === 'volume' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path === volume_selection",)):
-                                with html.Div(v_if=('project_name',),classes='import-row'):
-                                    html.Label('Destination',raw_attrs=['for="import-destination-mode"'])
-                                    with html.Select(id='import-destination-mode',v_model=('volume_import_mode',),disabled=('volume_loading',)):
-                                        html.Option('In project',value='project')
-                                        html.Option('External destination',value='external')
-                                html.Button('Create new project',v_if=('!project_name',),click=self.show_new_project_for_tiff,disabled=('volume_loading',),classes='import-project-action')
-                                with html.Div(v_if=("/\\.(h5|hdf5)$/i.test(volume_selection)",),classes='import-hdf-fields'):
-                                    html.Label('Dataset',raw_attrs=['for="hdf5-dataset"'])
-                                    with html.Select(id='hdf5-dataset',v_model=('volume_hdf5_dataset',),disabled=('volume_loading',)):
-                                        html.Option('{{ item.label }}',v_for='item in volume_hdf5_datasets',value=('item.value',),key=('item.value',))
-                                    html.Label('Dimension order',raw_attrs=['for="hdf5-axes"'])
-                                    with html.Select(id='hdf5-axes',v_model=('volume_hdf5_axes',),disabled=('volume_loading',)):
-                                        for axes in ('zyx','zxy','yxz','yzx','xyz','xzy'):
-                                            html.Option(axes.upper(),value=axes)
-                                html.Label('OME-Zarr output',raw_attrs=['for="volume-destination"'])
-                                with html.Div(classes='path-field'):
-                                    html.Input(id='volume-destination',type='text',v_model=('volume_destination',),disabled=("volume_loading || volume_import_mode === 'project'",))
-                                    with html.Span(v_if=("volume_import_mode !== 'project'",)):
-                                        self.path_browse_button('Choose conversion directory',self.browse_import_destination)
-                                html.Span('Pixel size (µm)',classes='import-pixel-label')
-                                with html.Div(classes='import-pixel-controls'):
-                                    with html.Div(classes='sample-spacing-fields'):
-                                        for axis in 'xyz':
-                                            with html.Span(classes='axis-number'):
-                                                html.Span(axis.upper(),classes='axis-prefix',raw_attrs=['aria-hidden="true"'])
-                                                html.Input(type='number',v_model=(f'volume_voxel_{axis}',),step=1,min=0,
-                                                           focus="window.nimPixelSizes.begin('volume')",
-                                                           input=f"window.nimPixelSizes.change('volume','{axis}',$event.target.value)",
-                                                           raw_attrs=[f'aria-label="Pixel size {axis.upper()} (µm)"'],disabled=('volume_loading',))
-                                    with html.Label(classes='import-ratio'):
-                                        html.Input(type='checkbox',v_model=('volume_voxel_linked',),change="window.nimPixelSizes.begin('volume')",disabled=('volume_loading',))
-                                        html.Span('Preserve XYZ ratio')
-                            with html.Div(classes='picker-new-folder',v_if=("picker_mode === 'project_directory'",)):
-                                html.Label('New folder name',raw_attrs=['for="project-new-folder"'])
-                                html.Input(id='project-new-folder',type='text',v_model=('project_new_folder',))
-                                html.Button('Create folder',click=self.create_project_folder)
+                            with html.Div(v_if=("picker_mode === 'volume' || picker_mode === 'relink'",),classes='picker-source-kind',role='group',aria_label='Sample source'):
+                                html.Span('Source')
+                                for label,value in [('Files','false'),('URL','true')]:
+                                    with html.Label():
+                                        html.Input(type='radio',name='sample-source-kind',checked=(('volume_url_mode' if value=='true' else '!volume_url_mode'),),
+                                                   change=f"volume_url_mode = {value}; volume_error = ''",disabled=('volume_loading',),raw_attrs=[f'aria-label="{label}"'])
+                                        html.Span(label)
+                            with html.Div(v_if=("volume_url_mode && (picker_mode === 'volume' || picker_mode === 'relink')",),classes='picker-url-field'):
+                                html.Label('OME-Zarr URL',raw_attrs=['for="volume-url"'])
+                                html.Input(id='volume-url',type='url',v_model=('volume_url',),disabled=('volume_loading',),
+                                           keydown_enter=self.open_selected_volume,__events=[('keydown_enter','keydown.enter.prevent')])
+                            with html.Div(v_show=("!(volume_url_mode && (picker_mode === 'volume' || picker_mode === 'relink'))",),classes='picker-local-fields'):
+                                with html.Div(classes='picker-navigation'):
+                                    html.Label('Folder',raw_attrs=['for="volume-directory"'])
+                                    html.Input(id='volume-directory',type='text',v_model=('volume_directory',),disabled=('volume_loading',),
+                                        keydown_enter=self.list_volume_directory,__events=[('keydown_enter','keydown.enter.prevent')])
+                                    with html.Button(click=self.parent_volume_directory,title='Parent directory',disabled=('volume_loading',),raw_attrs=['aria-label="Parent directory"']):
+                                        quasar.QIcon(name='arrow_upward',size='1.1rem')
+                                    with html.Button(click=self.list_volume_directory,title='Refresh',disabled=('volume_loading',),raw_attrs=['aria-label="Refresh"']):
+                                        quasar.QIcon(name='refresh',size='1.1rem')
+                                with quasar.QTable(id='volume-files',classes='file-table',
+                                                   no_data_label=("picker_mode === 'project_directory' ? 'No subdirectories' : 'No files match the selected filters'",),
+                                                   rows=('volume_entries',),row_key='path',
+                                                   columns=('file_columns', [dict(name='name',label='Name',field='name',align='left',sortable=True),
+                                                            dict(name='size',label='Size',field='size',align='right',sortable=True),
+                                                            dict(name='modified',label='Modified',field='modified',align='left',sortable=True)]),
+                                                   pagination=("{rowsPerPage:0,sortBy:'name',descending:false}",),
+                                                   hide_bottom=True,dense=True,flat=True,
+                                                   raw_attrs=['aria-label="Files and directories"']):
+                                    with Template(raw_attrs=['#body="props"']):
+                                        with html.Tr(click='!volume_loading && (volume_selection = props.row.path)',
+                                                        dblclick=(self.open_selected_volume, "[props.row.path, true]"),
+                                                        keydown_space='!volume_loading && (volume_selection = props.row.path)',
+                                                        keydown_enter=(self.open_selected_volume, "[props.row.path, true]"),
+                                                        __events=[('keydown_space','keydown.space.prevent'),('keydown_enter','keydown.enter.prevent')],
+                                                        raw_attrs=['tabindex="0"', ':data-path="props.row.path"',
+                                                                   ':aria-selected="volume_selection === props.row.path"'],
+                                                        classes=("{ 'file-selected': volume_selection === props.row.path }",)):
+                                            with html.Td():
+                                                html.Span('{{ props.row.name }}',title=('props.row.name',))
+                                            html.Td('{{ props.row.size_display }}',classes='text-right')
+                                            html.Td('{{ props.row.modified_display }}')
+                                with html.Div(classes='file-details',id='volume-file-details',
+                                              v_for='entry in volume_entries.filter(entry => entry.path === volume_selection)',key=('entry.path',)):
+                                    html.Strong('{{ entry.name }}',title=('entry.path',))
+                                    html.Span('{{ entry.kind }}{{ entry.size_detail ? " · " + entry.size_detail : "" }}')
+                                with html.Div(classes='picker-filter',v_if=("picker_mode !== 'project_directory'",)):
+                                    html.Label('Filter',raw_attrs=['for="volume-filter"'])
+                                    with html.Select(id='volume-filter',value=('volume_filter_choice',),change=(self.choose_volume_filter,'[$event.target.value]'),disabled=('volume_loading',)):
+                                        html.Option('{{ item.label }}',v_for='item in volume_filter_options',value=('item.value',),key=('item.value',))
+                                    html.Input(id='volume-name-filter',type='text',v_model=('volume_name_filter',),v_if=("volume_filter_choice === 'custom'",),
+                                        title='Filename pattern; separate multiple patterns with semicolons.',raw_attrs=['aria-label="Custom filename pattern"'],disabled=('volume_loading',))
+                                with html.Div(classes='picker-import-options',v_if=("picker_mode === 'volume' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path === volume_selection",)):
+                                    with html.Div(v_if=('project_name',),classes='import-row'):
+                                        html.Label('Destination',raw_attrs=['for="import-destination-mode"'])
+                                        with html.Select(id='import-destination-mode',v_model=('volume_import_mode',),disabled=('volume_loading',)):
+                                            html.Option('In project',value='project')
+                                            html.Option('External destination',value='external')
+                                    html.Button('Create new project',v_if=('!project_name',),click=self.show_new_project_for_tiff,disabled=('volume_loading',),classes='import-project-action')
+                                    with html.Div(v_if=("/\\.(h5|hdf5)$/i.test(volume_selection)",),classes='import-hdf-fields'):
+                                        html.Label('Dataset',raw_attrs=['for="hdf5-dataset"'])
+                                        with html.Select(id='hdf5-dataset',v_model=('volume_hdf5_dataset',),disabled=('volume_loading',)):
+                                            html.Option('{{ item.label }}',v_for='item in volume_hdf5_datasets',value=('item.value',),key=('item.value',))
+                                        html.Label('Dimension order',raw_attrs=['for="hdf5-axes"'])
+                                        with html.Select(id='hdf5-axes',v_model=('volume_hdf5_axes',),disabled=('volume_loading',)):
+                                            for axes in ('zyx','zxy','yxz','yzx','xyz','xzy'):
+                                                html.Option(axes.upper(),value=axes)
+                                    html.Label('OME-Zarr output',raw_attrs=['for="volume-destination"'])
+                                    with html.Div(classes='path-field'):
+                                        html.Input(id='volume-destination',type='text',v_model=('volume_destination',),disabled=("volume_loading || volume_import_mode === 'project'",))
+                                        with html.Span(v_if=("volume_import_mode !== 'project'",)):
+                                            self.path_browse_button('Choose conversion directory',self.browse_import_destination)
+                                    html.Span('Pixel size (µm)',classes='import-pixel-label')
+                                    with html.Div(classes='import-pixel-controls'):
+                                        with html.Div(classes='sample-spacing-fields'):
+                                            for axis in 'xyz':
+                                                with html.Span(classes='axis-number'):
+                                                    html.Span(axis.upper(),classes='axis-prefix',raw_attrs=['aria-hidden="true"'])
+                                                    html.Input(type='number',v_model=(f'volume_voxel_{axis}',),step=1,min=0,
+                                                               focus="window.nimPixelSizes.begin('volume')",
+                                                               input=f"window.nimPixelSizes.change('volume','{axis}',$event.target.value)",
+                                                               raw_attrs=[f'aria-label="Pixel size {axis.upper()} (µm)"'],disabled=('volume_loading',))
+                                        with html.Label(classes='import-ratio'):
+                                            html.Input(type='checkbox',v_model=('volume_voxel_linked',),change="window.nimPixelSizes.begin('volume')",disabled=('volume_loading',))
+                                            html.Span('Preserve XYZ ratio')
+                                with html.Div(classes='picker-new-folder',v_if=("picker_mode === 'project_directory'",)):
+                                    html.Label('New folder name',raw_attrs=['for="project-new-folder"'])
+                                    html.Input(id='project-new-folder',type='text',v_model=('project_new_folder',))
+                                    html.Button('Create folder',click=self.create_project_folder)
                             with html.Label(v_if=("picker_mode === 'volume' || picker_mode === 'relink'",)):
                                 html.Span('Voxel array size limit (MiB) ',title='Maximum size of the voxel array loaded into RAM for volume rendering.')
                                 html.Input(type='number',v_model=('volume_preview_mib',),min=1,step=16,disabled=('volume_loading',))
@@ -352,5 +409,5 @@ class ApplicationUI:
                             html.Button('Cancel',click=self.cancel_volume_load)
                             html.Button('Load scans in this directory',v_if=("picker_mode === 'saxs'",),click=self.use_saxs_directory,disabled=('saxs_loading',))
                             html.Button('Use this directory',v_if=("picker_mode === 'project_directory'",),click=self.finish_project_directory)
-                            html.Button('{{ picker_mode === \"project_directory\" ? \"Open folder\" : picker_mode === \"relink\" ? \"Use this CT image\" : \"Open\" }}',click=self.open_selected_volume,disabled=("volume_loading || (picker_mode === 'project_directory' && !volume_selection) || (picker_mode === 'volume' && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path !== volume_selection)",))
+                            html.Button('{{ picker_mode === \"project_directory\" ? \"Open folder\" : picker_mode === \"relink\" ? \"Use this CT image\" : \"Open\" }}',click=self.open_selected_volume,disabled=("volume_loading || (picker_mode === 'project_directory' && !volume_selection) || (picker_mode === 'volume' && !volume_url_mode && /\\.(?:tiff?|h5|hdf5)$/i.test(volume_selection) && volume_prepared_path !== volume_selection)",))
         self.layout = layout

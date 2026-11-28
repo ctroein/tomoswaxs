@@ -309,7 +309,7 @@ class AutoDetail:
         self.set_crop_planes(self.state.crop_bounds)
         self.detail_clip()
         self.update_render_summary(volume)
-        self.renderer.ResetCameraClippingRange(self.scene_bounds())
+        self.reset_clipping_range()
         if render:self.view.update()
 
     def detail_loaded(self,volume,kind):

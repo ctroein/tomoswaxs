@@ -1,6 +1,6 @@
 """Named per-sample position and camera bookmarks."""
 from copy import deepcopy
-from pathlib import Path
+from .sources import source_location
 import uuid
 
 from .projects import SAVED_VIEW_FIELDS, validate_saved_views
@@ -16,7 +16,7 @@ class SavedViews:
         self.state.client_only('show_saved_view_dialog')
 
     def standalone_saved_views(self,path):
-        key=str(Path(path).resolve()) if path is not None else '<synthetic>'
+        key=str(source_location(path)) if path is not None else '<synthetic>'
         return deepcopy(self._standalone_views.get(key,[]))
 
     def current_saved_views(self):

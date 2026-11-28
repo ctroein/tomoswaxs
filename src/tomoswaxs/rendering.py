@@ -22,6 +22,34 @@ OVERRIDES=('VTK_DEFAULT_OPENGL_WINDOW','VTK_DEFAULT_EGL_DEVICE_INDEX',
            'HIP_VISIBLE_DEVICES','GPU_DEVICE_ORDINAL','SLURM_JOB_GPUS','SLURM_STEP_GPUS')
 
 
+def reinitialise_graphics(window):
+    """Rebuild window, framebuffer, mapper and shader resources from CPU data.
+
+    Run on the rendering thread. Keep the VTK scene and OpenGL context; this is
+    intended for lost GPU contents, rather than a destroyed graphics context.
+    """
+    import vtk
+    errors=[]
+    @vtk.calldata_type(vtk.VTK_STRING)
+    def error(_obj,_event,message):errors.append(message or 'VTK graphics error.')
+    objects=[window]
+    for renderer in window.GetRenderers():
+        objects.append(renderer)
+        for prop in renderer.GetViewProps():
+            if hasattr(prop,'GetMapper') and prop.GetMapper() is not None:objects.append(prop.GetMapper())
+    observers=[(obj,obj.AddObserver(vtk.vtkCommand.ErrorEvent,error)) for obj in objects]
+    try:
+        window.Initialize()
+        window.MakeCurrent()
+        window.ReleaseGraphicsResources(window)
+        window.OpenGLInit()
+        window.Render()
+        window.WaitForCompletion()
+        if errors:raise RuntimeError('\n'.join(errors))
+    finally:
+        for obj,tag in observers:obj.RemoveObserver(tag)
+
+
 def new_window(device):
     import vtk
     if device=='system':return vtk.vtkRenderWindow()

@@ -6,6 +6,33 @@ from .orientation import sample_rotation
 
 
 class CameraControls:
+    def update_clipping_for_render(self,*_):
+        if self.state.beamline_visible:self.reset_clipping_range()
+
+    def reset_clipping_range(self,*_):
+        """Keep useful depth precision at station scale and protect nearby CT."""
+        self.renderer.ResetCameraClippingRange(self.scene_bounds())
+        if not self.state.beamline_visible:return
+        camera=self.renderer.GetActiveCamera()
+        near,far=camera.GetClippingRange()
+        # A camera inside the station's enclosing box has no useful lower
+        # depth bound. Do not spend precision on the first 0.5% of its orbit
+        # distance; unlike a fixed world-space cutoff this follows dolly zoom.
+        near=max(near,camera.GetDistance()*.005)
+        if self.state.has_volume:
+            points=self.camera_sample_points()
+            depths=(points-np.asarray(camera.GetPosition())) @ np.asarray(camera.GetDirectionOfProjection())
+            front=float(depths.min())
+            if front>0:
+                # Large equipment behind the camera must not push the near
+                # plane through a micron-scale sample. Leave a generous guard.
+                near=min(near,front*.5)
+            else:
+                # Inside the crop, retain the small distance-scaled cutoff.
+                near=min(near,camera.GetDistance()*.005)
+        near=max(1e-9,min(near,far*.5))
+        camera.SetClippingRange(near,far)
+
     def init_camera_controls(self):
         self._camera_crop_key=None
         self.state.update(camera_angle=0.,draft_camera_angle=0.,stereo_enabled=False,stereo_strength=2.,stereo_swap=False,stereo_notice='')
@@ -89,6 +116,7 @@ class CameraControls:
     def focus_visible_crop(self,crop=None,force=False):
         if not hasattr(self,'renderer') or not self.state.has_volume:
             return
+        if self.state.beamline_visible and self._beamline_scope!='sample':return
         centre=self.visible_crop_centre(crop)
         key=tuple(centre)
         if not force and self._camera_crop_key is not None and np.allclose(
@@ -115,7 +143,7 @@ class CameraControls:
         centre=np.asarray(camera.GetFocalPoint())
         camera.SetPosition(*(centre+rotation @ (np.asarray(camera.GetPosition())-centre)))
         camera.SetViewUp(*(rotation @ np.asarray(camera.GetViewUp())))
-        self.renderer.ResetCameraClippingRange(self.scene_bounds())
+        self.reset_clipping_range()
         self.sync_camera_angle()
         self.view.update()
         if finished:self.schedule_project_save()

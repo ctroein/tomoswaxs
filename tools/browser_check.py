@@ -98,6 +98,17 @@ def check_popouts(page):
     print('Popout rendering, interaction, updates, theme and return passed.',flush=True)
 
 
+def sample_action(page,name):
+    page.get_by_role('button',name='Sample',exact=True).click()
+    return page.get_by_role('menuitem',name=name,exact=True)
+
+
+def expect_active_sample(page,identifier):
+    page.get_by_role('button',name='Sample',exact=True).click()
+    expect(page.locator(f'[role="menuitemradio"][data-sample-id="{identifier}"]')).to_have_attribute('aria-checked','true')
+    page.keyboard.press('Escape')
+
+
 def file_row(page,path):
     return page.locator('#volume-files tbody tr').filter(
         has=page.get_by_role('cell',name=Path(path).name,exact=True))
@@ -110,7 +121,7 @@ def check_directory_navigation(page):
         for index in range(30):
             (root/f'{index:02d}_directory_with_a_long_descriptive_volume_name').mkdir()
         last = sorted(root.iterdir())[-1]
-        page.get_by_role('button',name='Open sample…',exact=True).click()
+        sample_action(page,'Open sample…').click()
         directory = page.locator('#volume-directory')
         previous = directory.input_value()
         directory.fill(str(root))
@@ -142,8 +153,10 @@ def check_directory_navigation(page):
 
 def check_project_picker(page):
     """Keep actions discoverable and report errors in the direct project chooser."""
-    expect(page.get_by_role('button',name='Open sample…',exact=True)).to_be_enabled()
-    expect(page.get_by_role('button',name='Samples…',exact=True)).to_be_disabled()
+    expect(sample_action(page,'Open sample…')).to_be_enabled()
+    page.keyboard.press('Escape')
+    expect(sample_action(page,'Manage samples…')).to_be_disabled()
+    page.keyboard.press('Escape')
     page.get_by_role('button',name='Project',exact=True).click()
     for label in ('Project settings…','Reload saved project','Close project'):
         expect(page.get_by_role('menuitem',name=label,exact=True)).to_be_visible()
@@ -179,7 +192,7 @@ def check_projects(page):
         source=root/'source.tif'
         tifffile.imwrite(source,np.arange(32**3,dtype='uint16').reshape(32,32,32),metadata={'axes':'ZYX'})
         second=import_tiff(source,root/'second.ome.zarr',100)
-        page.get_by_role('button',name='Open sample…',exact=True).click()
+        sample_action(page,'Open sample…').click()
         page.locator('#volume-directory').fill(str(root))
         page.locator('#volume-directory').press('Enter')
         file_row(page,source).click()
@@ -202,10 +215,12 @@ def check_projects(page):
         expect(page.locator('#volume-picker-title')).not_to_be_visible(timeout=60000)
         manifest=root/'experiment'/'project.json'
         expect(page.locator('.project-name')).to_have_text('experiment')
-        expect(page.get_by_role('button',name='Open sample…',exact=True)).to_be_enabled()
-        expect(page.get_by_role('button',name='Samples…',exact=True)).to_be_enabled()
+        expect(sample_action(page,'Open sample…')).to_be_enabled()
+        page.keyboard.press('Escape')
+        expect(sample_action(page,'Manage samples…')).to_be_enabled()
+        page.keyboard.press('Escape')
         first_id=json.loads(manifest.read_text())['active_sample_id']
-        page.get_by_role('button',name='Sample settings',exact=True).click()
+        sample_action(page,'Sample settings').click()
         page.locator('#sample-name').fill('First sample')
         page.get_by_role('button',name='Rename sample',exact=True).click()
         page.get_by_role('combobox',name='File direction for sample Y',exact=True).select_option('z')
@@ -226,12 +241,13 @@ def check_projects(page):
         expect(page.locator('#camera-angle-number')).to_have_value('150')
         first=next(sample for sample in json.loads(manifest.read_text())['samples'] if sample['id']==first_id)
         assert first['saved_views'][0]['name']=='Beam intersection'
-        page.get_by_role('button',name='Open sample…',exact=True).click()
+        sample_action(page,'Open sample…').click()
         file_row(page,second).click()
         page.get_by_role('button',name='Open',exact=True).click()
         expect(page.locator('#volume-picker-title')).not_to_be_visible()
-        page.get_by_role('combobox',name='Sample',exact=True).select_option(first_id)
-        expect(page.get_by_role('combobox',name='Sample',exact=True)).to_be_enabled()
+        page.get_by_role('button',name='Sample',exact=True).click()
+        page.locator(f'[role="menuitemradio"][data-sample-id="{first_id}"]').click()
+        expect_active_sample(page,first_id)
         expect(page.locator('#camera-angle-number')).to_have_value('150')
         page.locator('#open-project').click()
         page.get_by_role('menuitem',name='Close project',exact=True).click()
@@ -243,13 +259,13 @@ def check_projects(page):
         page.locator('#volume-directory').press('Enter')
         file_row(page,manifest).dblclick()
         expect(page.locator('.project-card')).not_to_be_visible()
-        expect(page.get_by_role('combobox',name='Sample',exact=True)).to_be_enabled()
+        expect_active_sample(page,first_id)
         expect(page.locator('#camera-angle-number')).to_have_value('150')
-        page.get_by_role('button',name='Sample settings',exact=True).click()
+        sample_action(page,'Sample settings').click()
         expect(page.get_by_role('combobox',name='File direction for sample Y',exact=True)).to_have_value('z')
         page.get_by_role('button',name='Close',exact=True).click()
         expect(page.locator('.sample-settings-card')).not_to_be_visible()
-        page.get_by_role('button',name='Samples…',exact=True).click()
+        sample_action(page,'Manage samples…').click()
         rows=page.locator('#project-samples tbody tr')
         expect(rows).to_have_count(2)
         second_id=next(item['id'] for item in json.loads(manifest.read_text())['samples'] if item['id']!=first_id)
@@ -257,21 +273,22 @@ def check_projects(page):
         page.locator('#managed-sample-name').fill('Second sample renamed')
         page.get_by_role('button',name='Rename',exact=True).click()
         expect(rows.filter(has_text='Second sample renamed')).to_have_count(1)
-        page.locator('.samples-card').get_by_role('button',name='Open',exact=True).click()
+        page.locator('.samples-card').get_by_role('button',name='Show sample',exact=True).click()
         expect(page.locator('.samples-card')).not_to_be_visible()
-        expect(page.get_by_role('combobox',name='Sample',exact=True)).to_have_value(second_id)
-        page.get_by_role('button',name='Samples…',exact=True).click()
+        expect_active_sample(page,second_id)
+        sample_action(page,'Manage samples…').click()
         page.get_by_role('button',name='Remove from project',exact=True).click()
         expect(rows).to_have_count(1)
-        expect(page.get_by_role('combobox',name='Sample',exact=True)).to_have_value(first_id)
+        expect(page.locator(f'#project-samples tr[data-sample-id="{first_id}"]')).to_contain_text('✓')
         page.get_by_role('button',name='Remove from project',exact=True).click()
         expect(rows).to_have_count(0)
         expect(page.locator('.empty-workspace')).to_be_visible()
         assert second.is_dir()
         assert json.loads(manifest.read_text())['samples']==[]
         page.locator('.samples-card').get_by_role('button',name='Close',exact=True).click()
-        expect(page.get_by_role('button',name='Sample settings',exact=True)).to_be_disabled()
-        page.get_by_role('button',name='Open sample…',exact=True).click()
+        expect(sample_action(page,'Sample settings')).to_be_disabled()
+        page.keyboard.press('Escape')
+        sample_action(page,'Open sample…').click()
         page.locator('#volume-directory').fill(str(root))
         page.locator('#volume-directory').press('Enter')
         file_row(page,second).dblclick()
@@ -280,7 +297,8 @@ def check_projects(page):
         assert len(json.loads(manifest.read_text())['samples'])==1
         page.locator('#open-project').click()
         page.get_by_role('menuitem',name='Close project',exact=True).click()
-        expect(page.get_by_role('button',name='Samples…',exact=True)).to_be_disabled()
+        expect(sample_action(page,'Manage samples…')).to_be_disabled()
+        page.keyboard.press('Escape')
         assert not (second/'nim-view.json').exists()
     print('Project creation, TIFF import, sample switching, reopening and sample management passed.',flush=True)
 
@@ -386,7 +404,7 @@ def check(url, artifacts, volume=None, import_output=None, dataset=None):
                 expect(logo).to_be_visible()
             page.get_by_role('button', name='Close', exact=True).click()
             if volume is not None:
-                page.get_by_role('button',name='Open sample…',exact=True).click()
+                sample_action(page,'Open sample…').click()
                 expect(page.locator('#volume-picker-title')).to_be_visible()
                 page.locator('#volume-directory').fill(str(volume.parent))
                 page.get_by_role('button',name='Refresh',exact=True).click()
@@ -409,7 +427,7 @@ def check(url, artifacts, volume=None, import_output=None, dataset=None):
                 print('TIFF import, explicit scale and expanded coordinates passed.',flush=True)
                 dataset = import_output
             if dataset is not None:
-                page.get_by_role('button',name='Open sample…',exact=True).click()
+                sample_action(page,'Open sample…').click()
                 page.locator('#volume-directory').fill(str(dataset.parent))
                 page.get_by_role('button',name='Refresh',exact=True).click()
                 file_row(page,dataset).click()

@@ -91,18 +91,20 @@ For the current files, the sorted `swaxs_y` snapshots are −2.19220 (137),
 provisionally 145.70 µm if those units are mm. These still need the confirmed
 mapping into the viewer's physical Y coordinate.
 
-The proposed visualization is to mark Y locations containing SAXS data beside
-the Y control and/or in the CT view, and offer a checkbox such as **Restrict Y to
-SAXS range**. The restriction would use the registered minimum/maximum coverage.
-The marks should continue to identify the actual sampled levels inside that
-range. The beam footprint may determine how much neighbourhood around each
-level has useful support; the scientists should define that interpretation.
+The current SAXS measurements panel selects an acquired Scan / Y, X position and
+rotation, and drives the beam and sample pose. The former proposal for a
+Restrict Y to SAXS range checkbox is superseded by navigation among acquired
+measurements. Marks in the CT view remain a possible coverage display. The beam
+footprint may determine how much neighbourhood around each level has useful
+support; the scientists should define that interpretation.
 
 Retain a source indication for each coordinate: these three Y values are
 start-position snapshots, whereas future files may contain per-measurement Y
 readbacks. Use the same coverage model for sparse and dense acquisitions.
 Coverage and display aggregation should be queryable from metadata without
-reading every cake. These are proposed GUI behaviours, not implemented controls.
+reading every cake. Scan selection and source indications are implemented in
+the HDF5 viewer; the common NGFF coverage representation and display aggregation
+remain proposed work.
 
 ### Weights, masks and uncertainties
 

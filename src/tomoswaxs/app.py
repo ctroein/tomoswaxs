@@ -1,5 +1,6 @@
 """TomoSWAXS: CT volume visualization with measured SAXS data."""
 from pathlib import Path
+from .sources import is_http_url, source_location, source_name
 from dataclasses import replace
 import math
 import asyncio
@@ -16,10 +17,12 @@ from .projects import legacy_axis, VIEW_FIELDS
 from .project_workflow import ProjectWorkflow
 from .ui import ApplicationUI
 from .saved_views import SavedViews
-from .volume_viewing import VolumeViewing
+from .volume_viewing import VolumeViewing,size_text
 from .saxs_workflow import SaxsWorkflow
 from .camera import CameraControls
-from .rendering import create_render_window, device_option
+from .beamline import BeamlineContext
+from .beamline_download import BeamlineDownloads
+from .rendering import create_render_window, device_option, reinitialise_graphics
 from .volume_bounds import transparent_crop
 
 
@@ -32,8 +35,9 @@ def colour_mapping_step(high, low=0.):
     return max(math.ulp(0.),decade/(20 if magnitude/decade<2 else 10))
 
 
-class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
-    def __init__(self, server=None, volume=None, data_directory=None, preview_mib=DEFAULT_PREVIEW_MIB, restore_project=True, render_device='auto'):
+class Demo(BeamlineDownloads, BeamlineContext, CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationUI, ProjectWorkflow):
+    def __init__(self, server=None, volume=None, data_directory=None, preview_mib=DEFAULT_PREVIEW_MIB, restore_project=True, render_device='auto',beamline_model=None):
+        self._beamline_model_path=beamline_model
         self.render_device=device_option(render_device)
         self.server = server or get_server(client_type='vue3')
         self.state = self.server.state
@@ -48,12 +52,12 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.state.update(beam_x=250., beam_y=0., radius_x=60., radius_y=40.,
                           angle=0., beam_visible=True, rotation_axis='y', sample_settings_notice='',
                           sample_pixel_size_editable=False,sample_voxel_x=1.,sample_voxel_y=1.,sample_voxel_z=1.,sample_voxel_linked=True, opacity=.55, workspace_ready=False, workspace_tabs=[], workspace_detached=[], workspace_busy=[], workspace_error='',
-                          status='Ready', log_iq=False, show_about=False, show_sample_settings=False, ui_theme='dark', ui_text_scale=100,ui_plot_scale=100,
+                          status='Ready',render_reinitialising=False,render_reinitialise_error='', log_iq=False, show_about=False, show_sample_settings=False, ui_theme='dark', ui_text_scale=100,ui_plot_scale=100,
                           draft_x=250., draft_y=0., draft_angle=0., rotation_playing=False, rotation_fps=20,rotation_step=1.5,rotation_settings_open=False,
                           beam_limit_um=1600, contrast_low=0., contrast_high=65535., contrast_step=colour_mapping_step(65535.),
                           data_notice='',
                           volume_summary='No sample open', show_volume_picker=False,
-                          volume_directory=str(data_directory or (volume.path.parent if volume else Path.cwd())),
+                          volume_directory=str(data_directory or (volume.path.parent if volume and not is_http_url(volume.path) else Path.cwd())),
                           volume_entries=[], volume_selection='', volume_voxel_x=1., volume_voxel_y=1., volume_voxel_z=1.,
                           volume_voxel_linked=True,
                           volume_destination='', volume_prepared_path='', volume_preview_mib=preview_mib, volume_progress='',
@@ -84,6 +88,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.state.change('log_iq')(self.update_plots)
         self.state.change('contrast_low', 'contrast_high')(self.update_scene)
         self.state.change('beam_visible')(self.beam_visibility_changed)
+        self.state.change('beamline_level','beamline_labels')(self.update_beamline)
         self.state.change('stereo_enabled','stereo_strength','stereo_swap')(self.update_stereo)
         self.state.change('volume_selection')(self.volume_selection_changed)
         self.state.change('volume_name_filter')(self.filter_volume_directory)
@@ -96,6 +101,21 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.server.controller.on_server_exited.add(self.persist_active)
         self.update_scene()
         self.update_plots()
+
+    async def reinitialise_rendering(self,**_):
+        if self.state.render_reinitialising or self.state.volume_loading:return
+        self.state.update(render_reinitialising=True,render_reinitialise_error='')
+        self.state.flush()
+        try:
+            await asyncio.sleep(0)
+            reinitialise_graphics(self.window)
+            self.view.update()
+        except Exception as error:
+            logging.getLogger(__name__).exception('Could not reinitialise rendering')
+            self.state.render_reinitialise_error=f'Could not reinitialise rendering: {error}'
+        finally:
+            self.state.render_reinitialising=False
+            self.state.flush()
 
     def set_volume_data(self, volume, rotation_axis=None):
         self.loaded_volume = volume
@@ -119,7 +139,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
                           contrast_low=self.contrast[0], contrast_high=self.contrast[1],
                           contrast_step=colour_mapping_step(self.contrast[1],self.contrast[0]),
                           data_notice='CT volume · no SAXS data',
-                          volume_summary=f'{volume.path.name} · {dimensions} voxels · XYZ spacing {source_spacing} µm · preview {preview} at {spacing} µm')
+                          volume_summary=f'{source_name(volume.path)} · {dimensions} voxels · XYZ spacing {source_spacing} µm · preview {preview} at {spacing} µm')
         self.sync_volume_controls(volume)
 
     def apply_import_pixel_size(self):
@@ -277,8 +297,9 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         try:
             await self.load_volume_selection(navigate=navigate)
         except Exception as error:
-            logging.getLogger(__name__).exception('Could not open selection %s', self.state.volume_selection)
-            self.state.volume_error = f'Cannot open "{self.state.volume_selection}": {type(error).__name__}: {error}'
+            selected=self.state.volume_url if self.state.volume_url_mode and self.state.picker_mode in ('volume','relink') else self.state.volume_selection
+            logging.getLogger(__name__).exception('Could not open selection %s', selected)
+            self.state.volume_error = f'Cannot open "{selected}": {type(error).__name__}: {error}'
         finally:
             self.state.flush()
 
@@ -313,7 +334,11 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
             spacing=np.broadcast_to(self.spacing,3)
             self._camera_data_bounds=np.column_stack([origin-spacing/2,origin+(np.array(values.shape[::-1])-.5)*spacing])
             self._camera_data_key=(id(self.render_source),key[2])
-        self.state.render_display=f"{'×'.join(map(str,values.shape[::-1]))} voxels, {values.nbytes/1024**2:.2f} MiB"
+        current=loaded if loaded is not None and loaded.values is self.volume else None
+        level=current.level if current is not None else 0
+        stride=current.stride if current is not None else 1
+        sampling=f' (subsampled ×{stride})' if stride>1 else ''
+        self.state.render_display=f"{'×'.join(map(str,values.shape[::-1]))} L{level} voxels, {size_text(values.nbytes)}{sampling}"
         source=self.volume_source if self.volume_source is not None else self._empty_source
         self.sample.GetProperty().SetScalarOpacityUnitDistance(float(np.min(source.spacing)))
 
@@ -356,7 +381,12 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         beam_mapper = vtk.vtkPolyDataMapper()
         geometry.Update()
         self.beam_geometry = vtk.vtkPolyData()
-        self.beam_geometry.DeepCopy(geometry.GetOutput())
+        # A screen-width core keeps the physical beam visible in station views.
+        # It shares the surface actor's colours, depth and visibility.
+        core=vtk.vtkLineSource();core.SetPoint1(0,0,-2.25);core.SetPoint2(0,0,2.25)
+        combined=vtk.vtkAppendPolyData();combined.AddInputConnection(geometry.GetOutputPort())
+        combined.AddInputConnection(core.GetOutputPort());combined.Update()
+        self.beam_geometry.DeepCopy(combined.GetOutput())
         beam_mapper.SetInputData(self.beam_geometry)
         beam_mapper.SetColorModeToDirectScalars()
         beam_mapper.ScalarVisibilityOn()
@@ -365,7 +395,9 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.beam.GetProperty().SetColor(.25,.9,1.)
         self.beam.GetProperty().SetOpacity(.4)
         self.beam.GetProperty().LightingOff()
+        self.beam.GetProperty().SetLineWidth(1.5)
         self.renderer.AddActor(self.beam)
+        self.update_beam_colors()
         axes = vtk.vtkAxesActor()
         self.axes = axes
         axes.SetTotalLength(.45,.45,.45)
@@ -373,6 +405,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         axes.SetPosition(-1.3,-1.,-1.3)
         axes.VisibilityOff()
         self.renderer.AddActor(axes)
+        self.build_beamline()
         self.window, self.render_selection = create_render_window(self.render_device)
         self.window.SetOffScreenRendering(1)
         self.window.SetAlphaBitPlanes(1)
@@ -387,6 +420,8 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         self.build_crop_widget()
         self.reset_camera()
         self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.limit_zoom)
+        self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.update_clipping_for_render)
+        self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.sync_beamline)
         self.renderer.AddObserver(vtk.vtkCommand.StartEvent,self.detail_render_start)
         self.renderer.AddObserver(vtk.vtkCommand.EndEvent,self.camera_rendered)
 
@@ -410,13 +445,15 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
     def scene_bounds(self):
         sample = self.visible_crop_bounds() if self.state.detail_enabled else self.sample.GetBounds()
         beam = self.beam.GetBounds()
-        return tuple(min(sample[i],beam[i]) if i%2 == 0 else max(sample[i],beam[i])
-                     for i in range(6))
+        boxes=[sample,beam]
+        if self.state.beamline_visible:boxes.append(self.beamline.bounds)
+        return tuple((min if i%2==0 else max)(bounds[i] for bounds in boxes) for i in range(6))
 
     def reset_camera(self, beam_view=False):
+        self._beamline_scope='sample'
         cam = self.renderer.GetActiveCamera()
         cam.SetParallelProjection(bool(beam_view))
-        cam.SetPosition(*( (0,0,8) if beam_view else (-4,-6,3) ))
+        cam.SetPosition(*( (0,0,8) if beam_view else ((-4,3,3) if self.state.beamline_visible else (-4,-6,3)) ))
         cam.SetFocalPoint(0,0,0)
         cam.SetViewUp(0,1,0)
         centre=self.visible_crop_centre()
@@ -441,8 +478,11 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
         cam.SetPosition(*(centre+normal*distance))
         self._camera_crop_key=tuple(centre)
         self.zoom_out_limit = 4*self.camera_view_span()
+        if self.state.beamline_visible:
+            self._beamline_sample_zoom=self.zoom_out_limit
+            self.zoom_out_limit=max(self.zoom_out_limit,16000.)
         self._zoom_camera = (cam.GetViewAngle(),cam.GetDistance())
-        self.renderer.ResetCameraClippingRange(self.scene_bounds())
+        self.reset_clipping_range()
         self.sync_camera_angle()
         if hasattr(self,'view'):
             self.view.update()
@@ -469,7 +509,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
                 focal = np.array(camera.GetFocalPoint())
                 direction = (np.array(camera.GetPosition())-focal)/distance
                 camera.SetPosition(*(focal+direction*target))
-            self.renderer.ResetCameraClippingRange(self.scene_bounds())
+            self.reset_clipping_range()
         self._zoom_camera = (camera.GetViewAngle(),camera.GetDistance())
         self.sync_stereo_camera()
 
@@ -488,14 +528,28 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
             result[name] = value/1000 if name in ("beam_x", "beam_y", "radius_x", "radius_y") else value
         return result
 
+    def sync_beam_geometry(self,parameters=None):
+        context=self.state.beamline_level!='sample'
+        self.beam.SetVisibility(bool(self.state.beam_visible and
+            (context or (self.state.has_sample and self.state.saxs_available))))
+        p=parameters or self.parameters()
+        if p is None:return
+        low,high=-self.beam_length/2,self.beam_length/2
+        if context:
+            bounds=self.beamline.bounds
+            low=min(low,bounds[4]);high=max(high,bounds[5])
+        nominal=context and not self.state.saxs_available
+        self.beam.SetPosition(0 if nominal else p['beam_x'],0 if nominal else p['beam_y'],(low+high)/2)
+        self.beam.SetScale(p['radius_x'],p['radius_y'],(high-low)/4.5)
+
     def beam_visibility_changed(self, **_):
         if hasattr(self,'beam'):
-            self.beam.SetVisibility(bool(self.state.has_sample and self.state.saxs_available and self.state.beam_visible))
+            self.sync_beam_geometry()
             self.view.update()
 
     def update_scene(self, **_):
         self.sample.SetVisibility(bool(self.state.has_sample and self.state.has_volume))
-        self.beam.SetVisibility(bool(self.state.has_sample and self.state.saxs_available and self.state.beam_visible))
+        self.sync_beam_geometry()
         if self._applying_pose or self.state.volume_loading or not self.state.has_sample:
             return
         p = self.parameters()
@@ -510,8 +564,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
                 matrix.SetElement(row,column,float(transform[row,column]))
         self.sample.SetUserMatrix(matrix)
         if not self.state.detail_enabled:self.focus_visible_crop()
-        self.beam.SetPosition(p['beam_x'],p['beam_y'],0)
-        self.beam.SetScale(p['radius_x'],p['radius_y'],self.beam_length/4.5)
+        self.sync_beam_geometry(p)
         self.update_beam_colors()
         self.update_crop_widget()
         try:
@@ -534,7 +587,7 @@ class Demo(CameraControls, SaxsWorkflow, VolumeViewing, SavedViews, ApplicationU
             self.colors.AddRGBPoint(scalar(value),*color)
         for value, alpha in [(0,0),(9000,0),(18000,.025),(35000,.12),(65535,.4)]:
             self.transfer.AddPoint(scalar(value),alpha*p['opacity'])
-        self.renderer.ResetCameraClippingRange(self.scene_bounds())
+        self.reset_clipping_range()
         self.view.update()
         self.schedule_project_save()
         if self._saxs_config is not None and not self.dragging_beam and not self.dragging_controls:
@@ -673,7 +726,7 @@ def main():
     import sys
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--project',type=Path,help='Open a TomoSWAXS project file or directory')
-    parser.add_argument('--volume',type=Path,help='OME-Zarr image on the application host')
+    parser.add_argument('--volume',help='OME-Zarr directory or HTTP(S) URL')
     parser.add_argument('--import-tiff',type=Path,help='Import TIFF into OME-Zarr, then open it')
     parser.add_argument('--output',type=Path,help='New OME-Zarr import destination')
     parser.add_argument('--import-only',action='store_true',help='Finish after conversion without starting the viewer')
@@ -681,6 +734,7 @@ def main():
     parser.add_argument('--preview-mib',type=float,default=DEFAULT_PREVIEW_MIB,help=f'Maximum loaded voxel array size in MiB (default: {DEFAULT_PREVIEW_MIB})')
     parser.add_argument('--data-dir',type=Path,help='Initial directory for the GUI file selector')
     parser.add_argument('--render-device',default='auto',help='Graphics selection: auto (default), system, or egl:N')
+    parser.add_argument('--beamline-model',type=Path,help='Prepared beamline model.json; defaults to data/3dmodel/formax-reduced/model.json when available')
     args, remaining = parser.parse_known_args()
     if '-h' in remaining or '--help' in remaining:
         parser.print_help()
@@ -693,7 +747,7 @@ def main():
             raise ValueError('--import-only requires --import-tiff.')
         if args.project and (args.volume or args.import_tiff):
             raise ValueError('--project is separate from --volume and --import-tiff.')
-        path = args.volume
+        path = source_location(args.volume) if args.volume else None
         if args.import_tiff:
             if path is not None or args.output is None:
                 raise ValueError('--import-tiff requires --output and is separate from --volume.')
@@ -701,13 +755,15 @@ def main():
                                progress=lambda text: print(text,flush=True))
             if args.import_only:
                 return
-        if path and path.suffix.lower() in ('.tif','.tiff'):
+        if path and not is_http_url(path) and path.suffix.lower() in ('.tif','.tiff'):
             raise ValueError('Import TIFF using --import-tiff FILE --output DESTINATION, or the GUI selector.')
         volume = VolumeSource(path).preview(args.preview_mib,refine=True) if path else None
     except (OSError, ValueError) as error:
         parser.error(str(error))
+    from .beamline_mesh import default_beamline_model
+    model=args.beamline_model or default_beamline_model(args.data_dir)
     app = Demo(volume=volume,data_directory=args.data_dir,preview_mib=args.preview_mib,
-               restore_project=not (args.project or path),render_device=args.render_device)
+               restore_project=not (args.project or path),render_device=args.render_device,beamline_model=model)
     from .rendering import renderer_name
     print(f'Graphics: {renderer_name(app.window)} ({app.window.GetClassName()}, {app.render_selection["device"]})',flush=True)
     if args.project:

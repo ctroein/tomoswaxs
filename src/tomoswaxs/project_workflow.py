@@ -12,6 +12,8 @@ from trame.widgets import html, quasar
 from .projects import Project, VIEW_FIELDS, legacy_axis, validate_view
 from .sample_management import SampleManagement
 from .volumes import VolumeSource, import_tiff, ImportCancelled, logical_path, import_hdf5
+from .sources import http_url, source_name, source_stem
+from .beamline import beamline_view
 
 
 class ProjectWorkflow(SampleManagement):
@@ -29,9 +31,10 @@ class ProjectWorkflow(SampleManagement):
         self.state.update(project_name='',sample_name='',has_sample=False,has_volume=False,sample_choices=[],sample_choice='',
                           project_error='',project_open_error='',show_project_open_error=False,
                           show_project=False,project_dialog_mode='new',project_menu_open=False,
-                          project_new_directory='',
+                          project_new_directory='',project_new_name='',
                           project_open_path='',project_name_draft='',sample_name_draft='',
                           project_include_current=True,project_for_tiff=False,picker_mode='volume',
+                          volume_url_mode=False,volume_url='',
                           project_relink_choice='',relink_sample_name='',relink_ct_path='',volume_import_mode='external',sample_context=uuid.uuid4().hex,
                           show_samples=False,project_samples=[],managed_sample_choice='',managed_sample_name='',sample_manager_error='')
         self.state.project_new_folder=''
@@ -68,7 +71,7 @@ class ProjectWorkflow(SampleManagement):
     def sync_project(self):
         project=self.project
         current=project.sample(self.active_sample_id) if project and self.active_sample_id else None
-        name=(current['name'] if current else (self.volume_source.path.name if self.volume_source else 'Sample')) if self.state.has_sample else ''
+        name=(current['name'] if current else (source_name(self.volume_source.path) if self.volume_source else 'Sample')) if self.state.has_sample else ''
         self.state.update(project_name=project.document['name'] if project else '',sample_name=name,
                           can_include_current=self.can_include_current(),
                           project_name_draft=project.document['name'] if project else '',sample_name_draft=name,
@@ -94,6 +97,7 @@ class ProjectWorkflow(SampleManagement):
                             parallel_scale=camera.GetParallelScale(),parallel_projection=bool(camera.GetParallelProjection()),
                             zoom_out_limit=self.zoom_out_limit)
         view['volume']=self.volume_view_state()
+        view['camera']['beamline']=dict(level=self.state.beamline_level,labels=bool(self.state.beamline_labels),scope=self._beamline_scope)
         validate_view(view)
         return view
 
@@ -103,6 +107,15 @@ class ProjectWorkflow(SampleManagement):
             self.restore_auto_detail(view['volume'].get('auto_detail',{}))
         camera=view.get('camera')
         if camera:
+            context=beamline_view(camera.get('beamline',dict(visible=False,labels=True,scope='sample')))
+            # Restore geometry separately from the saved camera: a level-menu
+            # selection fits the camera, while bookmark recovery preserves it.
+            if context['level']!='sample' and not self._beamline_was_visible:
+                self._beamline_sample_zoom=self.zoom_out_limit
+            self._beamline_was_visible=context['level']!='sample'
+            self.state.update(beamline_level=context['level'],beamline_visible=self._beamline_was_visible,beamline_labels=context['labels'])
+            self.sync_beamline()
+            self._beamline_scope=context['scope']
             cam=self.renderer.GetActiveCamera()
             cam.SetPosition(*camera['position']); cam.SetFocalPoint(*camera['focal_point'])
             cam.SetViewUp(*camera['view_up']); cam.SetViewAngle(camera['view_angle'])
@@ -111,6 +124,13 @@ class ProjectWorkflow(SampleManagement):
             self._zoom_camera=(cam.GetViewAngle(),cam.GetDistance())
             self.sync_camera_angle()
             self._camera_crop_key=tuple(self.visible_crop_centre())
+        else:
+            self._beamline_was_visible=False
+            self.state.update(beamline_level='sample',beamline_visible=False)
+            self.sync_beamline()
+            self.reset_camera()
+        if self._beamline_download_ready:
+            self.request_beamline_model(self.state.beamline_level)
 
     def schedule_project_save(self,**_):
         if not self.project or not self.active_sample_id or self._applying_pose or self.state.volume_loading:
@@ -148,7 +168,7 @@ class ProjectWorkflow(SampleManagement):
             self.state.flush()
 
     def show_new_project_for_tiff(self):
-        self.state.update(project_dialog_mode='new',project_for_tiff=True,project_include_current=False)
+        self.state.update(project_dialog_mode='new',project_for_tiff=True,project_include_current=False,project_new_name='')
         self._new_project_choosing=True
         self.browse_project_directory()
 
@@ -156,7 +176,7 @@ class ProjectWorkflow(SampleManagement):
         return self.project is None and self.volume_source is not None and bool(self.state.has_sample)
 
     def new_project_dialog(self):
-        self.state.update(project_dialog_mode='new',project_for_tiff=False,project_include_current=self.can_include_current())
+        self.state.update(project_dialog_mode='new',project_for_tiff=False,project_include_current=self.can_include_current(),project_new_name='')
         self._new_project_choosing=True
         self.browse_project_directory()
 
@@ -179,8 +199,10 @@ class ProjectWorkflow(SampleManagement):
             directory=Path(self.state.project_new_directory).expanduser().resolve()
             if not directory.name:
                 raise ValueError('Choose a named project directory.')
+            name=self.state.project_new_name.strip()
+            if not name:raise ValueError('Enter a project name.')
             view=self.capture_view() if self.can_include_current() and self.state.project_include_current and not self.state.project_for_tiff else None
-            project=Project.create(directory,directory.name)
+            project=Project.create(directory,name)
             if view is not None:
                 project.add_sample(self.volume_source.path if self.volume_source else None,self.state.sample_name,
                                    self.state.rotation_axis,view,saved_views=self.current_saved_views())
@@ -321,6 +343,8 @@ class ProjectWorkflow(SampleManagement):
             name=Path(snapshot['volume_destination']).name or Path(snapshot['volume_selection']).stem+'.ome.zarr'
             self.state.volume_destination=str(directory/name)
         elif choose:
+            if not self.state.project_new_name.strip() or self.state.project_new_name==Path(self.state.project_new_directory).name:
+                self.state.project_new_name=directory.name
             self.state.project_new_directory=str(directory)
         self._directory_snapshot=None
         if not self._directory_for_import:
@@ -407,7 +431,8 @@ class ProjectWorkflow(SampleManagement):
         self._relink_id=self.state.project_relink_choice
         sample=self.project.sample(self._relink_id)
         self.state.update(picker_mode='relink',show_volume_picker=True,volume_error='',
-                          relink_sample_name=sample['name'],relink_ct_path=sample['datasets']['ct'].get('path',''))
+                          volume_url_mode='url' in sample['datasets']['ct'],volume_url=sample['datasets']['ct'].get('url',''),
+                          relink_sample_name=sample['name'],relink_ct_path=sample['datasets']['ct'].get('url',sample['datasets']['ct'].get('path','')))
         self.configure_volume_filter()
         self.project_dialog_visibility(False)
         self.list_volume_directory()
@@ -422,8 +447,9 @@ class ProjectWorkflow(SampleManagement):
         if self.state.volume_loading:
             return
         try:
-            path=Path(self.state.volume_selection).expanduser()
-            if not self.state.volume_selection:
+            remote=self.state.picker_mode in ('volume','relink') and self.state.volume_url_mode
+            path=http_url(self.state.volume_url) if remote else Path(self.state.volume_selection).expanduser()
+            if not remote and not self.state.volume_selection:
                 raise ValueError('Select sample data or a directory.')
             if self.state.picker_mode=='project_directory':
                 if not path.is_dir():
@@ -442,13 +468,13 @@ class ProjectWorkflow(SampleManagement):
                 else:
                     await self.attach_saxs_path(path)
                 return
-            if path.is_dir() and not is_ome_zarr(path):
+            if not remote and path.is_dir() and not is_ome_zarr(path):
                 self._list_volume_directory(path); return
-            if self.state.picker_mode=='relink' and not is_ome_zarr(path):
+            if self.state.picker_mode=='relink' and not remote and not is_ome_zarr(path):
                 raise ValueError('Select the existing OME-Zarr CT image folder. Relinking does not import TIFF or HDF5 files.')
-            if not is_ome_zarr(path) and path.suffix.lower() not in ('.tif','.tiff','.h5','.hdf5'):
+            if not remote and not is_ome_zarr(path) and path.suffix.lower() not in ('.tif','.tiff','.h5','.hdf5'):
                 raise ValueError('Supported CT inputs are TIFF, HDF5 and OME-Zarr images.')
-            if path.suffix.lower() in ('.h5','.hdf5') and not self.state.volume_hdf5_dataset:
+            if not remote and path.suffix.lower() in ('.h5','.hdf5') and not self.state.volume_hdf5_dataset:
                 raise ValueError('Select a numeric 3D dataset to import from the HDF5 file.')
             if not self.persist_active():
                 self.state.volume_error=self.state.project_error
@@ -457,7 +483,7 @@ class ProjectWorkflow(SampleManagement):
             if self.state.picker_mode=='relink':
                 identifier=self._relink_id
                 sample=self.project.sample(identifier)
-            needs_import=path.suffix.lower() in ('.tif','.tiff','.h5','.hdf5')
+            needs_import=not remote and path.suffix.lower() in ('.tif','.tiff','.h5','.hdf5')
             if needs_import and not self.state.volume_destination.strip():
                 raise ValueError('Choose an OME-Zarr conversion destination.')
             await self.load_sample(path,self.project,identifier,sample,needs_import=needs_import,
@@ -511,11 +537,11 @@ class ProjectWorkflow(SampleManagement):
             if project:
                 if record is None:
                     identifier=project.add_sample(volume.path if volume else None,
-                        path.stem if path is not None else 'Sample',axis,identifier=self._import_sample_id,
+                        source_stem(path) if path is not None else 'Sample',axis,identifier=self._import_sample_id,
                         saved_views=self.standalone_saved_views(volume.path if volume else None))
                     record=project.sample(identifier)
                 elif relink:
-                    datasets={**record['datasets'],'ct':{'format':'ome-zarr','path':project.reference(volume.path)}}
+                    datasets={**record['datasets'],'ct':project.ct_reference(volume.path)}
                     project.update_sample(identifier,datasets=datasets)
                 project.change(active_sample_id=identifier)
             self._applying_pose=True
@@ -603,6 +629,8 @@ class ProjectWorkflow(SampleManagement):
                             html.Option('{{ sample.name }}',v_for='sample in sample_choices',value=('sample.id',),key=('sample.id',))
                         html.Button('Locate CT image…',click=self.relink_sample,disabled=('volume_loading || !project_relink_choice',))
                     with html.Div(v_if=("project_dialog_mode === 'new'",)):
+                        html.Label('Project name',raw_attrs=['for="new-project-name"'])
+                        html.Input(id='new-project-name',v_model=('project_new_name',),disabled=('volume_loading',))
                         html.Label('Project directory',raw_attrs=['for="new-project-directory"'])
                         with html.Div(classes='path-field'):
                             html.Input(id='new-project-directory',type='text',v_model=('project_new_directory',),readonly=True,disabled=('volume_loading',))
@@ -615,4 +643,4 @@ class ProjectWorkflow(SampleManagement):
                     html.Button('Cancel',v_if=("project_dialog_mode !== 'settings'",),click='show_project = false')
                     html.Button('Close',v_if=("project_dialog_mode === 'settings'",),click=self.close_project_dialog)
                     html.Button('Create project',v_if=("project_dialog_mode === 'new'",),click=self.create_project,
-                                disabled=('volume_loading || !project_new_directory',))
+                                disabled=('volume_loading || !project_new_directory || !project_new_name.trim()',))

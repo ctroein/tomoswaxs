@@ -10,6 +10,7 @@ import vtk
 
 from .volumes import VolumeSource, ImportCancelled
 from .auto_detail import AutoDetail
+from .sources import source_name
 
 
 def array_source(values, spacing, origin):
@@ -40,7 +41,7 @@ class VolumeViewing(AutoDetail):
         self._crop_dragging=False
         self.init_auto_detail()
         self.state.update(crop_revision=0,crop_bounds=[],render_options=[],render_level='auto',
-            render_loaded='',render_display='',render_target='',render_error='',render_loading=False,
+            render_loaded='',render_display='',render_refinement='',render_refinement_detail='',render_target='',render_error='',render_loading=False,
             crop_handles=False,crop_notice='',crop_units='voxel',crop_origin_um=[0.,0.,0.],crop_spacing_um=[1.,1.,1.])
         self.state.client_only('crop_draft_x','crop_draft_y','crop_draft_z','crop_notice','crop_units')
         self.sync_volume_controls()
@@ -119,11 +120,19 @@ class VolumeViewing(AutoDetail):
 
     def update_render_summary(self, volume):
         dimensions='×'.join(map(str,volume.values.shape[::-1]))
-        spacing=' × '.join(f'{s*1000:g}' for s in volume.spacing)
-        extra=f' (subsampling ×{volume.stride})' if volume.stride>1 else ''
-        if getattr(volume,'refined_from',None) is not None:extra+=f' (refined from L{volume.refined_from})'
-        self.state.render_loaded=f'level {volume.level}{extra}\n{dimensions} voxels\n{size_text(volume.values.nbytes)}'
-        name=self.render_source.path.name if self.render_source.path else 'Sample'
+        # Keep loaded-array metadata for diagnostics; the panel describes only
+        # the actual VTK input, which can omit transparent outer planes.
+        self.state.render_loaded=f'{dimensions} L{volume.level} voxels, {size_text(volume.values.nbytes)}'
+        refined=getattr(volume,'refined_from',None)
+        history=getattr(volume,'refinement_history',())
+        passes=max(1,len(history)-1)
+        self.state.render_refinement=(f'Refined from L{refined} in {passes} '+('pass.' if passes==1 else 'passes.')) if refined is not None else ''
+        path=' → '.join(f'L{level}'+(f' (subsampled ×{stride})' if stride>1 else '') for level,stride in history)
+        reason={'finest':'Finest stored resolution reached.',
+                'limit':'Finer levels exceed the voxel array limit.',
+                'empty':'No visible voxels at this colour mapping.'}.get(getattr(volume,'refinement_stop',''),'')
+        self.state.render_refinement_detail=' '.join(part for part in (path+'.' if path else '',reason) if part)
+        name=source_name(self.render_source.path) if self.render_source.path else 'Sample'
         self.state.volume_summary=f'{name}: {dimensions} voxels, {size_text(volume.values.nbytes)}'
 
     def volume_view_state(self):

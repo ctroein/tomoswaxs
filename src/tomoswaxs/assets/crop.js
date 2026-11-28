@@ -81,4 +81,5 @@
       catch {state.set('crop_notice',`Coordinates: ${text}`);}
     },
   };
+  window.dispatchEvent(new Event('nim-crop-ready'));
 })();

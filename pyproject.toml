@@ -17,7 +17,7 @@ authors = [
   {name = "Daniel White"},
   {name = "Stuart Ansell"},
 ]
-dependencies = ["h5py>=3.16,<3.17", "numpy>=2.5.4,<2.6", "vtk>=9.7.2,<9.8", "trame>=4.0.0,<4.1", "trame-client>=4.1.4,<4.2", "trame-vtk>=2.11.17,<2.12", "trame-plotly>=3.1.2,<3.2", "plotly>=7.1.0,<7.2", "trame-quasar>=0.2.1,<0.3", "trame-dockview>=2.0.1,<2.1", "tifffile>=2026.11.8,<2026.12", "ngff-zarr<0.54,>=0.52.0", "dask[array]<2026.12,>=2026.8.0"]
+dependencies = ["h5py>=3.16,<3.17", "numpy>=2.5.4,<2.6", "vtk>=9.7.2,<9.8", "trame>=4.0.0,<4.1", "trame-client>=4.1.4,<4.2", "trame-vtk>=2.11.17,<2.12", "trame-plotly>=3.1.2,<3.2", "plotly>=7.1.0,<7.2", "trame-quasar>=0.2.1,<0.3", "trame-dockview>=2.0.1,<2.1", "tifffile>=2026.11.8,<2026.12", "ngff-zarr[remote]>=0.53,<0.54", "obstore>=0.12.1,<0.13", "dask[array]<2026.12,>=2026.8.0"]
 
 [project.urls]
 Repository = "https://github.com/ctroein/tomoswaxs"

@@ -27,6 +27,37 @@
       {type:'branch',size:side,data:[leaf('crop','crop-controls',h*.64),leaf('saxs','saxs-controls',h*.36)]}
     ]}},nimControlsVersion:3,panels:Object.fromEntries(Object.entries(panels).map(([id,p])=>[id,{id,contentComponent:'DockPanel',params:{templateName:p.template},title:p.title,minimumHeight:100,minimumWidth:['crop','saxs'].includes(id)?260:180}])),activeGroup:'1'};
   }
+  function sizeLayout(layout,width,height) {
+    const result=JSON.parse(JSON.stringify(layout));
+    const oldWidth=result.grid.width || 1,oldHeight=result.grid.height || 1;
+    function grid(grid,w,h) {
+      function branch(node,horizontal,w,h) {
+        if(node.type!=='branch' || !node.data.length)return;
+        const sizes=node.data.map(child=>Number.isFinite(child.size) && child.size>0 ? child.size : 1);
+        const total=sizes.reduce((a,b)=>a+b,0);
+        node.data.forEach((child,i)=>{
+          child.size=(horizontal ? w : h)*sizes[i]/total;
+          branch(child,!horizontal,horizontal ? child.size : w,horizontal ? h : child.size);
+        });
+      }
+      grid.width=w;grid.height=h;
+      grid.root.size=grid.orientation==='HORIZONTAL' ? h : w;
+      branch(grid.root,grid.orientation==='HORIZONTAL',w,h);
+    }
+    grid(result.grid,width,height);
+    for(const group of result.floatingGroups || []) {
+      const p=group.position;
+      if(p) {
+        for(const key of ['left','width'])if(Number.isFinite(p[key]))p[key]*=width/oldWidth;
+        for(const key of ['top','height'])if(Number.isFinite(p[key]))p[key]*=height/oldHeight;
+      }
+      if(group.grid)grid(group.grid,p?.width || width,p?.height || height);
+    }
+    return result;
+  }
+  // A unit-sized grid stores fractions. The same conversion also accepts the
+  // old pixel layouts, so existing saved splitter proportions migrate directly.
+  function savedLayout(layout) { return sizeLayout(mainWindowLayout(layout),1,1); }
   // Persist a layout that reopens every panel in the main document. Never
   // replay window URLs or attempt window.open during a browser refresh.
   function mainWindowLayout(layout) {
@@ -123,8 +154,9 @@
     layout.nimControlsVersion=2;
     return layout;
   }
-  if(typeof module !== 'undefined' && module.exports) {module.exports={validLayout,defaultLayout,mainWindowLayout,placeSaxsBelowResolution,mergeVolumeControls};return;}
-  let dock,api;
+  if(typeof module !== 'undefined' && module.exports) {module.exports={validLayout,defaultLayout,mainWindowLayout,placeSaxsBelowResolution,mergeVolumeControls,sizeLayout,savedLayout};return;}
+  let dock,api,pendingLayout,preferredLayout,appliedLayout,restoring=false,resizing=false,resizeObserver,resizeTimer;
+  let lastWidth=0,lastHeight=0,wasHidden=false;
   const tabs=new WeakMap(),popouts=new Map(),disposables=[];
   const state=()=>window.trame.state;
   function syncLive() {
@@ -173,6 +205,9 @@
   });
   appearance.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','style']});
   window.addEventListener('pagehide',()=>{
+    captureLayout();
+    clearTimeout(resizeTimer);
+    resizeObserver?.disconnect();
     appearance.disconnect();
     for(const cleanup of [...popouts.values()]) cleanup();
     disposables.forEach(item=>item.dispose());
@@ -185,9 +220,37 @@
     const el=document.querySelector('.dock-workspace');
     return defaultLayout(el.clientWidth,el.clientHeight,layout?.height ? layout : undefined);
   }
+  function captureLayout() {
+    if(restoring || resizing || pendingLayout!==undefined)return;
+    const el=document.querySelector('.dock-workspace');
+    if(!el?.clientWidth || !el?.clientHeight)return;
+    const layout=api?.toJSON?.();
+    if(layout)window.nimWorkspace.changed(layout);
+  }
+  function resizeWorkspace() {
+    const el=document.querySelector('.dock-workspace');
+    if(!el?.clientWidth || !el?.clientHeight) {wasHidden=true;return;}
+    if(pendingLayout!==undefined) {restore(pendingLayout);return;}
+    if(!wasHidden && el.clientWidth===lastWidth && el.clientHeight===lastHeight)return;
+    // A resize must not replay the reload layout while a panel lives in another
+    // window: that layout intentionally returns detached panels to the grid.
+    if(api?.panels.some(panel=>panel.api.location.type==='popout')) {
+      lastWidth=el.clientWidth;lastHeight=el.clientHeight;wasHidden=false;
+      requestAnimationFrame(()=>{appliedLayout=JSON.stringify(api.toJSON());});
+      return;
+    }
+    wasHidden=false;resizing=true;clearTimeout(resizeTimer);
+    // Restore preferred fractions after native resizing settles. Minimum panel
+    // widths may constrain a small screen, but must not replace those fractions.
+    resizeTimer=setTimeout(()=>restore(preferredLayout),100);
+  }
   function restore(layout) {
     if(dock) {
-      const next=validLayout(layout) ? mainWindowLayout(layout) : initial(layout);
+      pendingLayout=layout;
+      const el=document.querySelector('.dock-workspace');
+      if(!el?.clientWidth || !el?.clientHeight)return;
+      lastWidth=el.clientWidth;lastHeight=el.clientHeight;wasHidden=false;
+      const next=validLayout(layout) ? mainWindowLayout(sizeLayout(layout,el.clientWidth,el.clientHeight)) : initial(layout);
       // Upgrade a saved three-panel workspace once; later closed controls stay closed.
       if(validLayout(layout) && !layout.nimControlsVersion) {
         const defaults=defaultLayout(1200,600);
@@ -199,7 +262,18 @@
         }
       }
       if(validLayout(layout) && (layout.nimControlsVersion || 0)<2)placeSaxsBelowResolution(next);
-      mergeVolumeControls(next);dock.restoreLayout(next);syncTabs(next);
+      mergeVolumeControls(next);
+      preferredLayout=savedLayout(next);
+      restoring=true;
+      try { dock.restoreLayout(next);syncTabs(next);window.nimWorkspace.currentLayout=next; }
+      finally { restoring=false;pendingLayout=undefined; }
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        const live=api?.toJSON?.() || next;
+        appliedLayout=JSON.stringify(live);
+        window.nimWorkspace.currentLayout=live;
+        resizing=false;
+        window.nimPreferences.updateLayout(preferredLayout);
+      }));
     }
   }
   window.nimWorkspace={validLayout,
@@ -260,13 +334,26 @@
     },
     ready(getDock) { const start=()=>Vue.nextTick(()=>{
       dock=getDock();
+      resizeObserver=new ResizeObserver(resizeWorkspace);
+      resizeObserver.observe(document.querySelector('.dock-workspace'));
       restore(window.nimPreferences.getLayout());
       window.trame.state.set('workspace_ready',true);
     });
       if (window.nimPreferences?.getLayout) start();
       else window.addEventListener('nim-preferences-ready',start,{once:true});
     },
-    changed(layout) { if(validLayout(layout)) { window.nimWorkspace.currentLayout=layout; syncTabs(layout); syncLive(); window.nimPreferences.updateLayout(mainWindowLayout(layout)); } },
+    changed(layout) {
+      const el=document.querySelector('.dock-workspace');
+      if(restoring || resizing || pendingLayout!==undefined || !el?.clientWidth || !el?.clientHeight)return;
+      if(validLayout(layout)) {
+        window.nimWorkspace.currentLayout=layout;syncTabs(layout);syncLive();
+        if(JSON.stringify(layout)===appliedLayout)return;
+        appliedLayout=undefined;preferredLayout=savedLayout(layout);
+        window.nimPreferences.updateLayout(preferredLayout);
+      }
+    },
+    savedLayout,
+    captureLayout,
     visibility() { requestAnimationFrame(()=>window.dispatchEvent(new Event('resize'))); },
     restore,
     open(id) { if(!dock || !panels[id]) return; const p=panels[id];dock.addPanel(id,p.title,p.template,{minimumHeight:100,minimumWidth:['crop','saxs'].includes(id)?260:180});dock.activePanel(id); },

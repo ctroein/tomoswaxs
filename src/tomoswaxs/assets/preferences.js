@@ -7,7 +7,7 @@
   const {validLayout}=workspace;
   const KEY = 'nim-uct-saxs.preferences.v1';
   const defaults = () => ({version:1, theme:'system', textScale:100, plotScale:100,
-                           rotationFps:20, rotationStep:1.5, voxelArrayMib:null, showAxes:false, rememberLayout:false, layout:{height:66, width:50}});
+                           rotationFps:20, rotationStep:1.5, voxelArrayMib:null, showAxes:false, rememberLayout:true, layout:{height:66, width:50}});
   const clamp = (n, low, high, fallback) =>
     typeof n === 'number' && Number.isFinite(n) ? Math.min(high, Math.max(low,n)) : fallback;
   function normalise(raw) {
@@ -19,7 +19,7 @@
     result.rotationFps = clamp(raw.rotationFps,1,60,20);
     result.rotationStep = clamp(raw.rotationStep,.1,180,1.5);
     if (typeof raw.voxelArrayMib === 'number' && Number.isFinite(raw.voxelArrayMib) && raw.voxelArrayMib >= 1) result.voxelArrayMib = raw.voxelArrayMib;
-    result.rememberLayout = raw.rememberLayout === true;
+    result.rememberLayout = raw.rememberLayout !== false;
     result.showAxes = raw.showAxes === true;
     if (result.rememberLayout) {
       if (validLayout(raw.layout)) result.layout = JSON.parse(JSON.stringify(raw.layout));
@@ -143,6 +143,7 @@
     dialog.querySelector('#pref-scale').value = prefs.textScale;
     dialog.querySelector('#pref-scale-number').value = prefs.textScale;
     dialog.querySelector('#pref-plot-scale').value = prefs.plotScale;
+    dialog.querySelector('#pref-plot-scale-slider').value = prefs.plotScale;
     dialog.querySelector('#pref-layout').checked = prefs.rememberLayout;
     dialog.querySelector('#pref-axes').checked = prefs.showAxes;
     dialog.querySelector('#pref-array-limit').value = prefs.voxelArrayMib ?? state.get('volume_preview_mib');
@@ -161,7 +162,13 @@
       prefs.voxelArrayMib=limit;
       const changed=Number(state.get('volume_preview_mib'))!==limit;
       state.set('volume_preview_mib',limit);
-      if(changed && state.get('has_volume') && !state.get('volume_loading'))window.nimCrop?.submit(true);
+      if(changed && state.get('has_volume') && !state.get('volume_loading')) {
+        const refresh=()=>{
+          if(state.get('has_volume') && !state.get('volume_loading'))window.nimCrop.submit(true);
+        };
+        if(window.nimCrop)refresh();
+        else window.addEventListener('nim-crop-ready',refresh,{once:true});
+      }
     }
     state.set('ui_theme',theme);
     state.set('ui_text_scale',prefs.textScale);
@@ -177,12 +184,13 @@
     dialog.innerHTML = `
       <form method="dialog">
         <h2 id="settings-title">Settings</h2>
-        <div class="settings-row"><label for="pref-theme">Theme</label>
+        <div class="settings-row"><label for="pref-theme">Color theme</label>
           <select id="pref-theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
         <div class="settings-row"><label for="pref-scale-number">Text size</label>
           <input id="pref-scale" aria-label="Text size slider" type="range" min="80" max="160" step="5">
           <span class="settings-number"><input id="pref-scale-number" type="number" min="80" max="160" step="5"><span>%</span></span></div>
         <div class="settings-row"><label for="pref-plot-scale">Plot font size</label>
+          <input id="pref-plot-scale-slider" aria-label="Plot font size slider" type="range" min="50" max="200" step="5">
           <span class="settings-number"><input id="pref-plot-scale" title="Relative to interface text size" type="number" min="50" max="200" step="5"><span>%</span></span></div>
         <div class="settings-row"><label for="pref-array-limit">Voxel array limit (MiB)</label>
           <input id="pref-array-limit" type="number" min="1" step="1"></div>
@@ -192,7 +200,22 @@
         <div class="settings-actions"><button type="button" id="pref-reset">Reset preferences</button><button value="close">Close</button></div>
       </form>`;
     document.body.appendChild(dialog);
+    const fontSliders = {'pref-scale': ['textScale','pref-scale-number'],
+                         'pref-plot-scale-slider': ['plotScale','pref-plot-scale']};
+    dialog.addEventListener('change', event => {
+      const setting = fontSliders[event.target.id];
+      if (!setting) return;
+      prefs[setting[0]] = Number(event.target.value);
+      prefs = normalise(prefs);
+      apply();
+      persist();
+    });
     dialog.addEventListener('input', event => {
+      const setting = fontSliders[event.target.id];
+      if (setting) {
+        dialog.querySelector('#'+setting[1]).value = event.target.value;
+        return;
+      }
       if (event.target.id === 'pref-array-limit') {
         const limit=Number(event.target.value);
         if (Number.isFinite(limit) && limit>=1) {
@@ -202,7 +225,7 @@
         return;
       }
       if (event.target.id === 'pref-theme') prefs.theme = event.target.value;
-      if (['pref-scale','pref-scale-number'].includes(event.target.id)) {
+      if (event.target.id === 'pref-scale-number') {
         if(!event.target.value || !event.target.validity.valid)return;
         prefs.textScale = Number(event.target.value);
       }
@@ -216,7 +239,7 @@
         if (!prefs.rememberLayout) prefs.layout = defaults().layout;
         // Capture the current dock arrangement even when the toggle is enabled
         // after a drag (no subsequent layout-change event is needed).
-        if (prefs.rememberLayout && window.nimWorkspace.currentLayout) prefs.layout=window.nimWorkspace.currentLayout;
+        if (prefs.rememberLayout && window.nimWorkspace.currentLayout) prefs.layout=window.nimWorkspace.savedLayout(window.nimWorkspace.currentLayout);
       }
       prefs = normalise(prefs);
       apply();
@@ -251,7 +274,7 @@
     }
 
   });
-  window.addEventListener('pagehide', () => { clearTimeout(saveTimer);persist(); });
+  window.addEventListener('pagehide', () => { window.nimWorkspace.captureLayout();clearTimeout(saveTimer);persist(); });
   media.addEventListener('change', () => { if (prefs.theme === 'system') apply(); });
   document.addEventListener('click', event => {
     if (!event.target.closest('#open-settings')) return;

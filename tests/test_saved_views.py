@@ -93,7 +93,7 @@ class SavedViewChecks(unittest.TestCase):
             self.assertEqual(reopened.sample(second)['saved_views'][0]['name'],'Second view')
             app.close_project()
             self.assertEqual(app.current_saved_views()[0]['name'],'Second view')
-            app.state.project_new_directory=str(Path(folder)/'copy');app.create_project()
+            app.state.update(project_new_directory=str(Path(folder)/'copy'),project_new_name='Copy');app.create_project()
             copied=Project.load(Path(folder)/'copy')
             self.assertEqual(copied.document['samples'],[])
 

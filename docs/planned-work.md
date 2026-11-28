@@ -18,10 +18,11 @@ Confirming the absolute CT–SAXS registration remains the current priority.
   automatic reopening. Errors opening unavailable projects remain visible.
 - The beam is hidden without attached SAXS data.
 
-## Next application changes
+## Voxel-array limit
 
-- Raise the default voxel-array size limit to suit a computer with a good
-  graphics card. The appropriate value is still to be determined.
+The application default is 256 MiB, shared by the command-line launcher and
+volume reader. A browser-saved preference overrides that default. Raising the
+default is no longer an outstanding task.
 
 ## Completed UI follow-up, 2026-11-24
 
@@ -59,8 +60,8 @@ retain the mode, depth and frozen region. The design follows Neuroglancer's
 view-dependent selection and depth controls; AGAVE and ChimeraX provided manual
 crop/refinement comparisons. See the user guide and development notes.
 
-Evaluate the behaviour with beamline users. Loading/rendering individual chunks
-could improve memory efficiency for oblique views in a later version.
+Carl is satisfied with Auto detail (2026-11-26); treat further evaluation as
+normal application feedback rather than a separate outstanding task.
 
 The existing-path improvements are implemented: separate required/prefetched
 coverage, keep useful detail while moving, a bounded decoded-block cache,
@@ -69,15 +70,30 @@ bounded parallel reads, one settling delay and coarse-to-fine refinement.
 Measured bottlenecks, experiments and progressive-rendering options are recorded
 in [Auto detail performance](auto-detail-performance.md).
 
-Next, evaluate brick-based rendering for centre-prioritised chunk display and
+Brick-based rendering was evaluated for centre-prioritised chunk display and
 mixed-resolution context. Neuroglancer's inspected volume-rendering path chooses
 one scale for the view and prioritises visible chunks near its centre. A finer
 centre with coarser context additionally needs compatible rendering/compositing.
 
 The [first brick-rendering prototype](brick-rendering-prototype.md) demonstrates
 the memory/detail trade-off and smaller local replacement cost, but has slower
-orbiting and unresolved beam transparency. Keep the current renderer while
-investigating single-ray brick integration with bounded sampler use.
+orbiting and unresolved beam transparency. Further brick work is deferred;
+keep the current renderer. See the NVIDIA assessment in the prototype notes
+for the conditions that would justify revisiting it.
+
+## Pop-out windows
+
+Carl reports that opening and closing pop-outs now works well (2026-11-26).
+The old window-close failure is no longer an active to-do.
+
+## Illustrative beamline context
+
+The first ForMAX model is implemented in the existing µCT viewer, with optional
+visibility and labels, Station overview and Sample close-up. It includes the
+combined motor stack and a truncated, cutaway flight-tube entrance. Published
+dimensions and illustrative assumptions are recorded in the
+[model notes](beamline-model.md). CAD replacements and mechanical animation
+remain later possibilities.
 
 ## Possible first-run profiles
 

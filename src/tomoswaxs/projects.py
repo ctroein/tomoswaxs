@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+from .sources import is_http_url, http_url
 import re
 import stat
 import uuid
@@ -16,6 +17,7 @@ VIEW_FIELDS = ('beam_x','beam_y','radius_x','radius_y','angle','opacity','contra
 
 def legacy_axis(path):
     """Read old viewer settings once as defaults; never modify the dataset."""
+    if is_http_url(path):return 'y'
     settings = Path(path)/'nim-view.json'
     if not settings.exists():
         return 'y'
@@ -62,6 +64,13 @@ def validate_view(view):
     if camera is not None:
         if not isinstance(camera,dict):
             raise ValueError('Invalid saved camera.')
+        context=camera.get('beamline')
+        if context is not None:
+            if not isinstance(context,dict) or type(context.get('labels')) is not bool:
+                raise ValueError('Invalid saved beamline view.')
+            current=(set(context)=={'level','labels','scope'} and context['level'] in ('sample','area','station') and context['scope'] in ('sample','area','station'))
+            legacy=(set(context)=={'visible','labels','scope'} and type(context['visible']) is bool and context['scope'] in ('sample','station','stack'))
+            if not (current or legacy):raise ValueError('Invalid saved beamline view.')
         for key in ('position','focal_point','view_up'):
             values=camera.get(key)
             if not isinstance(values,list) or len(values)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in values):
@@ -139,8 +148,14 @@ class Project:
             ct=sample['datasets'].get('ct',{})
             if not isinstance(ct,dict):
                 raise ValueError('Invalid sample CT dataset reference.')
-            if ct.get('kind') not in ('synthetic','none') and (ct.get('format')!='ome-zarr' or not isinstance(ct.get('path'),str) or not ct['path']):
-                raise ValueError('Invalid sample CT dataset reference.')
+            if ct.get('kind') not in ('synthetic','none'):
+                if ct.get('format')!='ome-zarr' or ('path' in ct)==('url' in ct):
+                    raise ValueError('Invalid sample CT dataset reference.')
+                if 'url' in ct:
+                    if not isinstance(ct['url'],str):raise ValueError('Invalid sample CT URL.')
+                    http_url(ct['url'])
+                elif not isinstance(ct.get('path'),str) or not ct['path'] or is_http_url(ct['path']):
+                    raise ValueError('Invalid sample CT dataset reference.')
             if sample.get('settings',{}).get('rotation_axis','y') not in ('x','y','z'):
                 raise ValueError('Invalid sample axis assignment.')
             validate_view(sample.get('view',{}))
@@ -211,6 +226,7 @@ class Project:
         self.change(samples=samples)
 
     def reference(self,path):
+        if is_http_url(path):return http_url(path)
         path=Path(path).expanduser().resolve()
         try:
             return path.relative_to(self.root).as_posix()
@@ -221,7 +237,13 @@ class Project:
         ct=sample['datasets']['ct']
         if ct.get('kind') in ('synthetic','none'):
             return None
+        if 'url' in ct:return http_url(ct['url'])
         return (self.root/ct['path']).resolve()
+
+    def ct_reference(self,source):
+        if source is None:return {'kind':'none'}
+        key='url' if is_http_url(source) else 'path'
+        return {'format':'ome-zarr',key:self.reference(source)}
 
     def output_directory(self,kind,identifier,create=False):
         if kind not in ('data','results','figures') or not re.fullmatch(r'[A-Za-z0-9_-]+',identifier):
@@ -233,7 +255,7 @@ class Project:
 
     def add_sample(self,path,name,axis='y',view=None,identifier=None,saved_views=None):
         identifier=identifier or uuid.uuid4().hex
-        ct={'kind':'none'} if path is None else {'format':'ome-zarr','path':self.reference(path)}
+        ct=self.ct_reference(path)
         sample=dict(id=identifier,name=name.strip(),datasets=dict(ct=ct,scattering={'kind':'none'}),
                     settings={'rotation_axis':axis},view=view or {})
         if saved_views:

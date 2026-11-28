@@ -4,6 +4,10 @@ For initial setup, see the [installation guide](installation.md).
 For the web interface, see the [user guide](user-guide.md).
 Near-term priorities and investigation topics are in [planned work](planned-work.md).
 
+The optional [ForMAX equipment context](beamline-model.md) shares the µCT
+renderer. `beamline.py` owns its geometry, labels and presets; the model notes
+record published dimensions, estimated parts and camera-state persistence.
+
 Startup has no specimen: an invisible 2³ zero buffer only initializes VTK.
 `has_sample` identifies an active sample record; `has_volume` identifies a loaded
 CT image. Legacy `ct.kind='synthetic'` records remain readable as samples without
@@ -134,8 +138,8 @@ the chooser's Open button can also open a selected project directory. Chooser
 failures must be visible within the chooser, including unexpected exceptions;
 unexpected exceptions are logged with tracebacks. New projects derive their
 display name from the chosen directory; existing projects can be renamed in
-Project settings. Folder icon buttons beside path fields use Exhale's Tabler SVG
-and its accompanying MIT licence from `assets/icons/`.
+Project settings. Folder icon buttons beside path fields use the Material
+`folder_open` icon.
 Existing datasets are referenced; internal paths are relative and external paths
 absolute. The project directory contains `project.json` and, as needed,
 `data/<sample-id>/`, `results/<sample-id>/`, and `figures/<sample-id>/`.
@@ -168,7 +172,7 @@ can retain the current standalone sample and view with Include current sample.
 Project-free conversion explicitly writes a new dataset while preserving input.
 
 The single Open sample action works with or without a project. `sample_management.py`
-owns the Samples dialog, its source list, rename and membership removal. Removing
+owns the Samples dialog (Sample → Manage samples…), its source list, rename and membership removal. Removing
 an active member loads a replacement before removing its record, so a failed
 replacement leaves membership intact. Removing the last member clears the view
 and invalidates queued input; `has_sample` gates scientific controls and panels.
@@ -196,8 +200,9 @@ sample settings and switching, close/reopen and modal dismissal.
 Development is local; no GitHub remote or publishing workflow is required.
 Leave changes uncommitted for Carl to review unless a commit is requested.
 The initial packaging version is `0.1.0.dev0`; the About dialog identifies the
-software as a development prototype. `uv build` creates a wheel and source
-distribution. Include the matching lockfile or requirements export when
+software with a Version link showing `git describe --always --tags --dirty`
+in a checkout, falling back to the installed package version. `uv build` creates
+a wheel and source distribution. Include the matching lockfile or requirements export when
 distributing a reproducible environment.
 
 ## Browser preferences
@@ -211,7 +216,7 @@ dark. Do not put browser appearance preferences in shared Python state.
 client-only Trame state. Dock layout JSON stays in browser-local preferences. The preference record excludes scientific state.
 
 The browser preference `voxelArrayMib` restores `volume_preview_mib` and is
-updated from both Resolution and Settings. The server startup value supplies the
+updated from both Crop and resolution and Settings. The server startup value supplies the
 initial default and Reset preferences value. Restoring a different limit with a
 CT image loaded submits a bounded rendering request. Invalid partial edits are
 not persisted. Active control labels use `--text`; supplementary text uses
@@ -373,9 +378,34 @@ verified against the target machine's graphics libraries and drivers.
 
 ## OME-Zarr volume access and TIFF import
 
-`volumes.py` uses ngff-zarr 0.52 for native OME-Zarr access. `VolumeSource` exposes
+`volumes.py` uses ngff-zarr 0.53 for native OME-Zarr access. `VolumeSource` exposes
 metadata, lazy levels, region reads and point sampling. Its bounded preview is
 separate from source data. VTK uses that preview.
+
+HTTP(S) sources use `ngff-zarr[remote]` and obstore. `sources.py` preserves URL
+identity independently of filesystem paths. Project CT records contain either
+`{"format":"ome-zarr","path":"…"}` or `{"format":"ome-zarr","url":"…"}`;
+existing path records retain their meaning. Remote metadata supplies spacing and
+translation; remote sources have no local import sidecar to edit.
+
+`http_sources.py` uses ngff-zarr's public bytes-mapping reader for Zarr v2,
+fetching complete objects through obstore. This supports GET-only services such
+as hdf5-zarr-server. Native partial reads against that service otherwise issue
+HEAD requests, receive 405, and can silently substitute fill values. The mapping
+turns only missing objects (404) into KeyError; other HTTP failures propagate.
+ngff-zarr handles codecs, ragged edge chunks and lazy array assembly. Zarr v3
+uses the native remote backend, including byte-range reads for sharded data.
+The existing decoded-chunk cache, bounded preview and Auto detail scheduler apply
+to both local and remote sources.
+
+`tests/test_http_volumes.py` checks real HTTP reads, crops, physical metadata,
+project reopening and failures. Its optional hdf5-zarr-server check runs the
+installed service against chunked HDF5 fixtures, compressed and uncompressed,
+and compares voxel values including edge chunks. To enable that check, install
+`git+https://github.com/maxiv-science/hdf5-zarr-server.git` in the development
+environment. The data service is not an application dependency. Supplied service
+URLs are stored verbatim; registering HDF5 files or renewing service handles is
+outside the current client integration.
 
 TIFF import writes OME-Zarr 0.5 with 64³ chunks and DASK_BIN_SHRINK block-mean
 levels. Level zero retains source dtype and values. Supported ImageJ/OME-TIFF
@@ -492,10 +522,9 @@ readback, rapid selection, linked CT positioning and detached-panel return.
 ## Icon sources
 
 The current icon inventory is in `src/tomoswaxs/assets/icons/README.md`.
-Local SVGs use `currentColor` and are embedded by `ApplicationUI.svg_icon()`;
-CSS supplies the theme accent. The SVG files contain the colours they use, with
-no runtime colour replacement. Play, Pause and view help currently use Quasar’s
-Material Icons names through `QIcon` in `ui.py`.
+Application icons use Quasar’s Material Icons names through `QIcon` in `ui.py`,
+`workspace.py` and `saxs_ui.py`. CSS supplies the theme accent. Rotation settings
+uses `tune`; panel pop-out/return uses `open_in_new`, rotated for return.
 
 ## UI and dock workspace structure
 
@@ -505,12 +534,29 @@ panel templates and the Dockview widget. Build these named templates outside the
 main layout context so Dockview can host them without duplicate root content.
 
 `assets/workspace.js` manages docking, panel recovery and default arrangements
-through the wrapper’s public component methods. The **Tabs** menu toggles open and closed
-panels and resets the arrangement. `preferences.js` saves complete Dockview JSON
-only when Remember panel layout is enabled. Old splitter percentages are used
+through the wrapper’s public component methods. The **View** menu groups panel
+toggles under **Tabs**, followed by layout reset and rendering reinitialisation.
+`preferences.js` saves complete Dockview JSON
+only when Remember panel layout is enabled. `savedLayout()` normalizes the grid
+to 1×1, storing splitter sizes and floating positions as fractions;
+`sizeLayout()` expands those fractions to the visible workspace dimensions.
+Legacy pixel layouts migrate through the same conversion. Old splitter percentages are used
 as initial proportions. The workspace and preferences scripts signal readiness
 explicitly because Trame may load them in either order. Layout remains local to
 the browser, separate from project and sample state.
+
+Restore waits until the workspace is visible. Hidden startup previously restored
+into Dockview's temporary 100×100 grid and saved the resulting minimum-size
+layout over the preferred proportions. Hidden and programmatic layout events
+are now excluded from persistence. A ResizeObserver reapplies the preferred
+fractions after window resizing settles; minimum widths on a small display do
+not overwrite the preferred sizes for a larger display. Resizing with a pop-out
+uses native resizing so detached panels remain in their windows. Page exit
+captures pending user splitter changes before flushing preferences.
+`tests/workspace.cjs` covers normalization, migration and deferred restore.
+Browser checks on 2026-11-27 covered 1100–1900 px window widths, minimum-width
+round trips, splitter drags, reloads, hidden/reveal transitions and pop-out resize
+and return. Diagnostics are in `data/inspection/layout-2026-11-27/`.
 
 The default renderer keeps hidden tabs mounted. Dockview observes panel sizes;
 VTK and Plotly observe their own containers. The installed wrapper supports
@@ -569,7 +615,8 @@ power-of-two stride sampling of the coarsest level when necessary. Array size,
 not a hidden axis-length cap, controls this selection. The limit excludes total
 process and GPU allocation overhead.
 
-`workspace.py` defines named `nim_crop` and `nim_resolution` panel templates.
+`workspace.py` defines the combined Crop and resolution template, `nim_crop`.
+Layout migration version 3 folds the former `nim_resolution` panel into it.
 `crop.js` keeps numeric/range drafts local and submits complete requests through
 the existing bounded queue. Server acknowledgements leave newer drafts intact;
 reload and sample changes restore drafts from canonical bounds. The rendering
@@ -595,33 +642,25 @@ Within `src/tomoswaxs/`, `app.py` coordinates state and rendering, `ui.py` build
 controls and dialogs, and `workspace.py` defines dock panels. `projects.py`
 validates and saves project manifests; `project_workflow.py` manages sample and
 project operations. `saved_views.py` manages pose/camera bookmarks. `volumes.py`
-reads OME-Zarr and imports TIFF; `volume_viewing.py` manages crop and resolution
-loads. `orientation.py` defines coordinate transforms and `synthetic_demo.py`
-generates the illustrative CT specimen. Browser scripts, styles,
+reads OME-Zarr and imports TIFF/HDF5; `volume_viewing.py` manages crop and resolution
+loads. `orientation.py` defines coordinate transforms. Browser scripts, styles,
 icons and logos are in `assets/`.
 
 Python integration tests and JavaScript checks are in `tests/`.
 `tools/browser_check.py` exercises the installed GUI;
 `tools/try_dependency_updates.py` tests dependency updates and packaging.
-Root `app.py` is a launch wrapper; `preview_demo.py` creates a static preview.
+Root `app.py` is a launch wrapper.
 
 The saved-project format remains `nim-ct-saxs-project` for compatibility with
 existing files. Internal `nim` browser keys, asset routes and RPC names also
 remain stable; these are implementation identifiers, not the application name.
 
-## Synthetic fixtures and static preview
+## Test fixtures
 
-The app generates its small 160³ uint16 specimen in memory at startup. NumPy
-NPZ fixtures and a static preview can also be generated in the sibling `../data/`
-directory, outside Git:
-
-```bash
-uv run --active python -m tomoswaxs.synthetic_demo --output ../data
-uv run --active --group preview python preview_demo.py
-```
-
-The static preview additionally needs Matplotlib. It writes `../data/preview.png`.
-`specimen.npz` contains Z,Y,X voxels, scalar spacing and XYZ origin.
+Tests that require an active CT sample use `tests/sample_fixture.py`, which
+supplies an explicit in-memory array. TIFF, HDF5 and OME-Zarr tests create small
+temporary datasets. Application startup has no generated specimen; the former
+specimen generator and static-preview script have been removed.
 
 ## HDF5 CT import
 
@@ -663,13 +702,13 @@ over an established configuration. Actual registration remains per-sample.
 
 The fake SAXS generator and fallback have been removed. Empty samples clear both
 figures and display “No SAXS data loaded”; legacy synthetic scattering records
-are treated as unloaded. `synthetic_demo.py` now generates only a CT fixture.
+are treated as unloaded. The CT specimen generator has also been removed.
 
 ## Compact SAXS navigation and physical crop units
 
-The default right column contains Crop, Resolution and SAXS measurements in that
-order. `nimControlsVersion: 2` migrates SAXS below Resolution in older saved
-layouts once; later user arrangements are retained. SAXS controls contain no
+The default right column contains Crop and resolution above SAXS measurements.
+Layout migration version 2 placed SAXS below the former separate Resolution
+panel; version 3 merges Crop and Resolution. Later user arrangements are retained. SAXS controls contain no
 loading action or coverage grid. The text inputs have spinbutton roles with
 explicit keyboard stepping over acquired values; commits reject off-grid values.
 Motor readbacks are structured fields in Measurement details.
@@ -689,7 +728,8 @@ reload (comparing proportions when container height changes). It still fails
 when closing a popped-out cake window: five main-window tabs remain rather
 than six, with repeated ResizeObserver notifications. This failure is retained
 in the browser check, not filtered out. Explicit pop-out return worked in the
-focused prior checks. Further pop-out lifecycle investigation is outstanding.
+focused prior checks. Update, 2026-11-26: Carl reports that opening and closing
+pop-outs now works well; this historical failure is no longer an active task.
 
 
 Crop and Resolution now share the `nim_crop` panel, titled Crop and resolution.
@@ -726,6 +766,46 @@ this avoids benchmark overhead and preserves deliberate per-process GPU choices
 when comparing renderers. `tests/test_rendering.py` exercises ranking, cache
 invalidation, environment precedence and probe failures with mocked devices.
 
+### Missing volume in a long-running process, 2026-11-27
+
+The server started the previous evening displayed the beam and CAD geometry but
+no CT volume, including after Saved views → Default camera. Read-only wslink
+inspection confirmed a visible vtkVolume, a 217.88 MiB float image with valid
+scalar range, nonzero opacity transfer function and the expected sample matrix.
+There were no application loading errors. A separate process rendered the same
+Bamboo data and saved startup camera successfully. Carl restarted the server,
+after which the volume appeared correctly.
+
+Carl subsequently confirmed that the failure appeared after hibernation. The
+data are on an external disk; whether it was unmounted/remounted is unconfirmed.
+The valid resident CT array and absence of loading errors favour a rendering
+resource problem over a failed source read for this incident.
+
+The exact mechanism is unresolved. The installed NVIDIA driver reports
+PreserveVideoMemoryAllocations=0; loss of GPU resources across hibernation is a
+hypothesis, not a demonstrated cause. A same-settings volume-input rebuild was
+also tried, but occurred after Carl's restart, so it does not establish a
+recovery method for the failed process. No rendering-code change was made.
+Diagnostic state and independent-process captures are under
+`data/inspection/missing-sample-2026-11-27/`.
+
+### Manual rendering recovery
+
+**View → Reinitialise rendering** calls `reinitialise_graphics()` on the rendering
+thread. It releases the window's GPU resources, including framebuffer objects,
+shader caches and mapper resources, then calls `OpenGLInit()` and renders again.
+The explicit OpenGL initialization is necessary after VTK replaces its state
+cache during resource release. CPU image/mesh objects, the camera and viewing
+state remain in place. The action is guarded while loading a sample or while
+another reset is running. Python exceptions and observed VTK errors are shown
+in the interface. It operates on the existing OpenGL context; recovery from a
+destroyed context is not established. Automatic resume detection is not included.
+
+`tests/test_rendering_recovery.py` checks repeated native resource rebuilding,
+rendered volume pixels, retained CPU objects/camera/settings, visible failure
+and busy guards. Real post-hibernation recovery still needs verification when
+the original failure recurs.
+
 ## Early-development dependency updates
 
 Accept newer stable dependencies when the available checks show that they work.
@@ -750,3 +830,30 @@ The assertion remains in place. Other browser steps after that assertion were
 not reached. The test runner now launches Python tests from the source directory
 so tests can import repository tools; its detached-panel count is corrected to
 four main-window tabs while one of five panels is in a separate window.
+
+### Iterative transparent-margin refinement
+
+`volume_bounds.refine_preview` rescans each newly loaded array, maps the retained
+cell edges to full-resolution coordinates, and selects the finest fitting stored
+level. Each successful read strictly improves voxel spacing; the loop stops when
+no finer level fits or no visible content remains. Subsampled arrays can also
+advance to the full spacing of the same source level. Cancellation is checked
+between reads and during boundary-plane scans. The original manual crop and
+requested level remain unchanged. `refinement_crop` tracks the last actual read;
+`refinement_spacing` retains the initial coarse spacing so Auto detail's coverage
+reuse remains conservative outside the final read.
+
+`Volume.refinement_history` records `(level, stride)` for the initial array and
+each finer read. `refinement_stop` records `finest`, `limit` or `empty`. The panel
+reports completed passes, and its tooltip gives the sequence and stopping reason.
+Tests cover a consistent averaged pyramid where L2 → L1 → L0 needs two passes,
+a budget-limited stop, translated anisotropic levels, stride recovery,
+cancellation on the second scan, colour-mapping restoration and VTK summaries.
+Bamboo at 256 MiB retained L2 after L3: a further check found that finer data still
+exceeded the limit. The inspected array was 368×446×348, with one final transparent
+plane omitted from the VTK input. Diagnostics: `data/inspection/iterative-refinement-2026-11-28/`.
+
+Saved array limits are applied after the client crop controller becomes ready
+(`nim-crop-ready`), including a reload of a CLI-preloaded array when necessary.
+This prevents the displayed saved limit from disagreeing with the initial read
+budget. JavaScript checks cover that deferred startup submission.

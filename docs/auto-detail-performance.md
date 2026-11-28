@@ -1,8 +1,12 @@
 # Auto detail: performance investigation
 
 Investigated 2026-11-24 against the working tree based on `5050205`.
-This records measurements and proposed improvements; the application has not
-been changed as part of this investigation.
+The baseline measurements below precede the changes recorded under
+Implemented follow-up. They describe the Intel rendering path at that time,
+not the current defaults or outstanding implementation tasks. The default
+voxel-array limit is now 256 MiB. Subsequent GPU and brick comparisons are in
+[Brick rendering prototype](brick-rendering-prototype.md); Linux startup now
+selects a renderer as described in the [installation guide](installation.md#graphics-selection).
 
 ## Measurement conditions
 
@@ -35,7 +39,7 @@ ZYX 151×251×251 array, 36.29 MiB. It intersects 100 storage chunks.
 
 | Operation | Observed elapsed time |
 | --- | ---: |
-| Current `preview()` for the ROI, repeated | 255–269 ms |
+| Baseline `preview()` for the ROI, repeated | 255–269 ms |
 | Dask compute portion, single-threaded, three comparison runs | 228–242 ms |
 | Dask compute with 2 workers, median | 152 ms |
 | Dask compute with 4 workers, median | 108 ms |
@@ -66,7 +70,8 @@ The cache experiment retained complete decoded chunks in a bounded 128 MiB LRU,
 using 100 MiB for this ROI. Repeated and slightly shifted requests reused all
 100 chunks and produced arrays identical to uncached reads. It demonstrates
 benefit, not a chosen default cache size. The output remains 36 MiB in addition
-to the cache; the current 64 MiB array limit would not cover that combined use.
+to the cache; the 64 MiB array limit used in this experiment did not cover that
+combined use. Cache memory remains additional to the voxel-array limit.
 
 ## Rendering and image delivery
 
@@ -103,7 +108,9 @@ image, not the source voxel resolution. VTK also has
 [interactive sampling controls](https://vtk.org/doc/nightly/html/classvtkGPUVolumeRayCastMapper.html)
 for trading ray-casting quality against allocated frame time.
 
-## Avoidable latency and coarse fallback
+## Baseline latency and coarse fallback
+
+This section records the behaviour before the implemented follow-up below.
 
 An instrumented run with a 1200×800 view, fourfold camera zoom, Depth 50 and a
 64 MiB array limit produced this sequence:
@@ -140,7 +147,11 @@ loads are installed only if their crop contains the latest planned crop;
 otherwise their useful overlapping work is discarded. There is no persistent
 decoded-chunk cache to recover that work.
 
-## Progressive updates: practical choices
+## Progressive updates: options considered
+
+The single-array improvements and bounded decoded cache were subsequently
+implemented. Chunk-priority scheduling and incremental chunk display remain
+design options; the brick experiments are recorded separately.
 
 ### Improve the existing single-array path
 
@@ -222,24 +233,20 @@ supports simultaneous overlapping volumes, but does not supply the policy for
 replacing coarse values with fine ones. The AMR mapper is another candidate
 for a focused prototype, not an established solution for this viewer.
 
-## Suggested sequence and remaining measurements
+## Follow-up status and remaining measurements
 
-Start with coverage reuse and scheduling, then benchmark bounded read concurrency
-and decoded caching. Add whole-region coarse-to-fine refinement with a final
-quality update after motion stops. These changes reuse the existing rendering
-architecture and directly address measured problems.
-
-Next, prototype a small brick-based view in isolation. Compare time to useful
-centre detail, first-frame stalls and steady orbiting against the improved
-single-array path. Include oblique views, depth changes, opaque and transparent
-objects, the beam, and perspective/orthographic cameras. That experiment should
-decide whether a fine centre with coarse context warrants the extra renderer
-and compositing work.
+Coverage reuse, scheduling, bounded read concurrency, decoded caching and
+whole-region coarse-to-fine refinement are implemented, as detailed below.
+The isolated brick prototype and Intel/NVIDIA comparisons are also complete.
+Further brick rendering work is deferred: see the
+[assessment](brick-rendering-prototype.md#assessment-after-the-nvidia-comparison).
+Carl is satisfied with the current Auto detail behaviour (2026-11-26).
 
 Still unmeasured: true cold storage and remote filesystems, application end-to-end
 browser latency, texture upload versus other mapper initialization, GPU cache
 retention, adaptive frame budgets, and exact overlap/coverage thresholds. The
 reported timings are evidence for this dataset and machine, not target defaults.
+Investigate these when a performance problem warrants the measurements.
 
 ## Implemented follow-up
 

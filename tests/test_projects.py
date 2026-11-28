@@ -110,10 +110,28 @@ class WorkflowChecks(unittest.TestCase):
             directory.mkdir(parents=True,exist_ok=True)
             app.state.volume_directory=str(directory)
             app.finish_project_directory()
-        app.state.update(project_new_directory=str(directory),project_include_current=include)
+        app.state.update(project_new_directory=str(directory),project_new_name=directory.name,project_include_current=include)
         app.create_project()
         self.assertEqual(app.state.project_error,'')
         return app.project
+
+    def test_new_project_name_is_independent_of_its_directory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app,_,_=self.fixture(folder);self.addCleanup(app.window.Finalize)
+            first=Path(folder)/'project';first.mkdir()
+            second=Path(folder)/'project-files';second.mkdir()
+            app.new_project_dialog();app.state.volume_directory=str(first);app.finish_project_directory()
+            self.assertEqual(app.state.project_new_name,'project')
+            app.state.project_new_name='Bamboo'
+            app.browse_project_directory();app.state.volume_directory=str(second);app.finish_project_directory()
+            self.assertEqual(app.state.project_new_name,'Bamboo')
+            app.state.project_new_name='   ';app.create_project()
+            self.assertIn('project name',app.state.project_error)
+            self.assertFalse((second/'project.json').exists())
+            app.state.project_new_name='Bamboo';app.create_project()
+            self.assertEqual(app.state.project_error,'')
+            self.assertEqual(app.project.document['name'],'Bamboo')
+            self.assertEqual(app.project.path,second/'project.json')
 
     def test_include_current_only_for_standalone_real_sample(self):
         with tempfile.TemporaryDirectory() as folder:

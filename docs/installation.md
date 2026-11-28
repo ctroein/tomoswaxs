@@ -39,7 +39,16 @@ Pip uses the dependency ranges in `pyproject.toml`, not the exact versions in
 `uv.lock`. With this environment active, run `tomoswaxs` directly instead of
 `uv run --active --locked tomoswaxs`.
 
+HTTP(S) OME-Zarr reading is included through `ngff-zarr[remote]` and obstore.
+Opening URLs from hdf5-zarr-server requires that service to run on the data host;
+the TomoSWAXS host only needs its image URL.
+
 ## Start locally
+
+A prepared ForMAX CAD asset in `data/3dmodel/formax-reduced/` is detected
+automatically beside a checkout or under `--data-dir`. Use
+`--beamline-model /path/to/model.json` for another location. Preparation and
+placement are described in [the beamline notes](beamline-model.md).
 
 From the checkout, with that environment active:
 
@@ -110,3 +119,22 @@ uv export --locked --no-dev --no-emit-project --format requirements.txt --output
 Install those requirements and the wheel together to reproduce that dependency
 set. See the [development guide](development.md) for checks, dependency updates
 and the local login-service setup.
+
+## Optional ForMAX model
+
+With a published model release configured, TomoSWAXS downloads its mesh bundle
+when Sample area or Whole beamline is first requested. It stores and verifies
+the files on the application host under
+`$XDG_DATA_HOME/tomoswaxs/beamline-models/formax/<version>` (default:
+`~/.local/share/tomoswaxs/beamline-models/formax/<version>`).
+
+For offline installation, transfer the matching release ZIP to the application
+host and extract it into that version directory. `model.json` must be directly
+inside the directory. TomoSWAXS verifies the files against its release catalogue
+before using them. Alternatively, point `--beamline-model` to an existing
+prepared `model.json`; this takes precedence over downloading.
+
+The first public model release is being prepared. The source checkout can use
+local meshes in `data/3dmodel/formax-reduced`; without local meshes or a configured
+release, the equipment views use the schematic model. Release preparation is
+documented in [beamline-model.md](beamline-model.md#optional-model-downloads).

@@ -2,6 +2,20 @@
 
 TomoSWAXS lets you explore a sample’s 3D CT image alongside its SAXS measurements.
 
+The **Beamline** menu selects one of three levels. **Sample**, the default,
+shows the CT sample and its measured beam. **Sample area** adds nearby detectors,
+a short tube section and a schematic motor stack. **Whole beamline** shows the
+complete assembly. Selecting a level fits the camera to it; drag to look around
+and scroll to zoom. The selected level stays fixed as you navigate.
+The sample position and motor stack are provisional while we await the
+motor-stage CAD. **Component labels** switches machinery labels on and off.
+Projects and saved views remember the level and label setting.
+You can explore the machinery before opening data.
+For installations using the downloadable model, the first equipment view fetches
+it on the computer running TomoSWAXS. A progress dialog offers **Cancel**, or
+**Retry** if the download fails. The installed model is reused on later runs.
+**Saved views → Default camera** returns to a view fitted to the CT sample.
+
 The interface reopens the last project used in this browser when it is available.
 Recent projects appear in the Project menu. Closing a project clears automatic
 reopening while keeping it in the recent list. If a project is unavailable, the
@@ -16,11 +30,12 @@ application, see the [installation guide](installation.md).
 
 If a sample is already open, you can begin [exploring it](#explore-the-sample).
 To return to saved work, choose **Project → Open project** and select the project
-directory or its `project.json` file. The **Sample** selector beside **Open sample…**
-switches between its samples.
+directory or its `project.json` file. The **Sample** menu lists its samples, with the current sample checked.
+Its name is also shown beside the menu.
 
 For new work, create a project through **Project → New project**, choosing a
-folder for it, then use **Open sample…** to add your CT image. Supported inputs
+folder and entering a project name. The name is independent of the folder name.
+Then use **Sample → Open sample…** to add your CT image. Supported inputs
 are OME-Zarr images, HDF5 volumes and [3D TIFF files](#open-and-import-ct-volumes). Scattering
 measurements are attached [separately](#browse-measured-saxs).
 
@@ -100,12 +115,12 @@ uses logarithmic colours and an automatic colour range.
 Use the plot toolbar to zoom or export an image; double-click a plot to restore
 its axis ranges.
 
-The plots remain empty until scattering data are attached. **Sample settings**
+The plots remain empty until scattering data are attached. **Sample → Sample settings**
 identifies the current data sources.
 
 ## Browse measured SAXS
 
-Choose **Sample settings → Load SAXS scans…**.
+Choose **Sample → Load SAXS scans…**.
 Select an integrated `scan-XXXX_eiger_integrated.h5` file, or choose **Load scans
 in this directory** to attach the scans together. The corresponding motor
 metadata must be in `Metadata/scan-XXXX.h5` beside the integrated files. The
@@ -207,7 +222,7 @@ Auto detail, depth and a frozen region are also remembered with the sample.
 
 ## Open and import CT volumes
 
-An OME-Zarr image opens directly through **Open sample…**. TIFF and HDF5 inputs must first be
+An OME-Zarr image opens directly through **Sample → Open sample…**. TIFF and HDF5 inputs must first be
 converted to an OME-Zarr image; the import dialog asks where to save it. Within a
 project, the destination defaults to its data folder. For an external destination,
 use the folder button to choose the directory and edit the destination name as
@@ -217,6 +232,15 @@ the source file and produces an image you can reopen without converting again.
 Progress identifies the resolution level being written and the total number of
 levels. The first is full resolution; subsequent levels are progressively coarser.
 
+For an image hosted online, choose **URL** in **Sample → Open sample…**, paste the HTTP or
+HTTPS address of the OME-Zarr image and click **Open**. Crop, resolution and Auto
+detail work with the hosted image. An active project remembers its URL. The
+machine running TomoSWAXS must be able to reach that address.
+
+For hdf5-zarr-server, use the OME-Zarr image URL returned when the data service
+opens a file. Keep that service running while viewing. If a service restart
+changes the URL, use **Locate CT image…** in Project settings to replace it.
+
 Check **Pixel size (µm)** before importing. Supported TIFF pixel-size metadata
 supply the values when available; otherwise the fields start at 1 µm. Enter the
 sizes for X, Y and Z. **Preserve XYZ ratio** changes the values proportionally
@@ -224,7 +248,7 @@ when you edit one; clear it to enter each size independently.
 
 ### Import an HDF5 volume
 
-Select the HDF5 file through **Open sample…**. **HDF5 volume dataset** lists its
+Select the HDF5 file through **Sample → Open sample…**. **HDF5 volume dataset** lists its
 numeric 3D arrays with their dimensions and data types. Select the CT array;
 a file containing a single candidate selects it automatically.
 
@@ -243,11 +267,11 @@ this import.
 ### Correct image geometry
 
 If you supplied the pixel size during import, it can be revised under
-**Sample settings → Pixel size (µm)**. Closing that dialog saves the new sizes to
+**Sample → Sample settings → Pixel size (µm)**. Closing that dialog saves the new sizes to
 the imported OME-Zarr image itself. This also changes the sizes seen by other
 projects referencing that image.
 
-**Sample settings → Axis assignment → File direction for sample Y** corrects
+**Sample → Sample settings → Axis assignment → File direction for sample Y** corrects
 the orientation when a TIFF’s dimension order was assumed incorrectly. Here,
 file X means columns, Y means rows and Z means the stack. Choose the file
 direction corresponding to the sample’s rotation axis. That assignment is saved
@@ -256,9 +280,9 @@ with the sample in the project.
 ## Keep work in a project
 
 A project saves its samples, viewing settings, CT/scattering associations and
-saved views automatically. **Samples…** lists its members and their sources and allows renaming without loading;
+saved views automatically. **Sample → Manage samples…** lists its members and their sources and allows renaming without loading;
 **Show sample** displays the selected member. Data paths are also listed under
-**Sample settings → Data sources**.
+**Sample → Sample settings → Data sources**.
 **Remove from project** removes a sample’s membership and saved settings while
 keeping the data files.
 
@@ -291,17 +315,23 @@ analysis tools will require an active project.
 ## Arrange the interface
 
 Drag panel tabs to an edge to split the workspace, or onto another tab strip to
-group panels. **Tabs** opens closed panels and can restore the default layout.
+group panels. The **Tabs** section of **View** opens and closes panels.
+**View → Restore default layout** resets their arrangement.
 Shift-drag creates a floating panel inside the page.
 
 The arrow beside a tab’s close button opens the panel in a separate browser
 window. The arrow in that window returns it; closing the window also returns
 its panels. Keep the main application window open while using these windows.
 
-The **Settings** gear provides theme, text size, plot font size, the voxel array limit and
+**View → Reinitialise rendering** rebuilds graphics resources from the loaded
+data. Use it if the volume disappears or drawing becomes corrupted, for example
+after hibernation. It preserves the camera, sample selection and viewing settings.
+
+The **Settings** gear provides color theme, text size, plot font size, the voxel array limit and
 **Remember panel layout and sizes**. This remembers splitter proportions as well
-as panel arrangement. Changes to the limit in Crop and resolution are remembered too.
-Plot font size is a percentage of interface text size; 100% uses matching sizes.
+as panel arrangement and is enabled by default. Changes to the limit in Crop and resolution are remembered too.
+The size sliders apply changes when released. Plot font size is a percentage of
+interface text size; 100% uses matching sizes.
 These preferences are saved in the browser. A remembered layout restores detached
 panels inside the main window when the page is reloaded.
 
@@ -316,10 +346,11 @@ one, remain unchanged. Nonfinite values are retained conservatively.
 
 The bounds found at the initial Auto level are mapped to full-resolution image
 coordinates, retaining that level's interpolation margin. Auto then loads the
-finest stored level that fits those bounds within its array budget. Auto detail
-uses its existing reservation for a retained overview. The refined data are not
-trimmed or used to request another refinement. Fully transparent base arrays do
-not trigger refinement.
+finest stored level that fits those bounds within its array budget. Each newly
+loaded array is checked again, and refinement continues while a finer stored
+level fits the retained region. It stops at the finest available resolution or
+when the finer levels exceed the limit. Auto detail uses its existing reservation
+for a retained overview. Fully transparent arrays stop refinement.
 
 Changing the colour mapping reconsiders the original coverage at the base
 resolution, so previously excluded material can return. The manual crop and
@@ -329,8 +360,10 @@ to inspect the full selected region. A later Auto-detail zoom outside the
 refined box requests fresh data when the new target is finer than the original
 coarse check.
 
-The Auto selector reports its base level. Loaded reports the actual level and
-notes when it was refined; Rendered describes the VTK input. A refinement read
+The Auto selector reports its base level. **Rendered** gives the actual array
+dimensions, source level and size sent to VTK. A note identifies the original
+level and number of completed refinement passes. Hover the summary or note to
+see the level sequence and why refinement stopped. A refinement read
 can temporarily overlap the previous array in memory, and decoding caches and
 VTK allocations are additional to the array budget.
 

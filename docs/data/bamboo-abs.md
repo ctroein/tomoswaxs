@@ -124,7 +124,9 @@ The dataset named
 contains the string `(1486, 2697, 2697)`. This declares Z/X/Y terminology, but
 there are no dimension scales or axis attributes on the array. Equal second
 and third dimensions prevent shape alone from distinguishing their orientation.
-The mapping of these axes to the viewer's sample axes remains unresolved.
+The viewer currently maps image Z to laboratory Y as a working assignment.
+The physical axis permutation and signs still need beamline confirmation; see
+the axis-label follow-up under Questions for Mira / ForMAX.
 
 Selected `/metadata/` values:
 

@@ -13,7 +13,7 @@ class SampleManagement:
             ct=datasets.get('ct',{})
             scattering=datasets.get('scattering',{})
             rows.append(dict(id=sample['id'],name=sample['name'],
-                             ct='No CT image' if ct.get('kind') in ('synthetic','none') else ct.get('path',''),
+                             ct='No CT image' if ct.get('kind') in ('synthetic','none') else ct.get('url',ct.get('path','')),
                              scattering=('Not loaded' if scattering.get('kind') in ('synthetic','none') else
                                          f"{len(scattering.get('scans',[]))} integrated SAXS scans" if scattering.get('kind')=='formax-integrated' else
                                          scattering.get('path','Not specified')),

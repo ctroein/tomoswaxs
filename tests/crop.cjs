@@ -3,13 +3,14 @@ const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 module.exports=async function checkCrop(){
   const values={render_level:'auto',volume_preview_mib:64,crop_units:'voxel',crop_origin_um:[-50,-100,-150],crop_spacing_um:[.5,1,2]};
   for(const axis of 'xyz'){values[`crop_max_${axis}`]=160;values[`crop_draft_${axis}`]={min:0,max:160};}
-  const calls=[],copied=[];
+  const calls=[],copied=[],events=[];
   const listeners=[];
   const state={addListener:fn=>listeners.push(fn),get:key=>values[key],set:(key,val)=>{values[key]=val;}};
-  const window={trame:{state},nimUpdates:{submit:(...args)=>calls.push(args)}};
+  const window={trame:{state},nimUpdates:{submit:(...args)=>calls.push(args)},dispatchEvent:event=>events.push(event.type)};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/tomoswaxs/assets/crop.js'),'utf8'),{
-    window,navigator:{clipboard:{writeText:async text=>copied.push(text)}},
+    window,Event:class {constructor(type){this.type=type;}},navigator:{clipboard:{writeText:async text=>copied.push(text)}},
   });
+  assert.deepEqual(events,['nim-crop-ready']);
   window.nimCrop.edit('x','min','40');
   assert.equal(calls.length,1,'Numeric input submits without relying on a browser change event');
   assert.equal(JSON.stringify(calls[0][1].crop),'[[40,160],[0,160],[0,160]]');
